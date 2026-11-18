@@ -27,6 +27,12 @@ memory as on Marcelo's Mac, in a different machine. Read this before trusting a 
 - **Secrets**: `.env` is copied in from the Secret `dev-system/conversation-env` by conv-shell, and
   `GH_TOKEN` comes from the workspace's own env. `kubeconfig/`, `id_rsa_mf` and AWS credentials are not
   here yet - they get added one by one, when a task needs them.
+- **What is waiting on Marcelo on GitHub** - his open pull requests, reviews asked of him, pull requests he
+  reviewed, issues assigned to him, across Rancher, Harvester and Longhorn - is already fetched and kept by
+  conversation-api: `curl -s http://conversation-api.dev-system:8080/work` (JSON: `work.mine`,
+  `work.reviewing` with `reviewRequested`, `work.issues`; `at` is when it was fetched). Use it before
+  searching GitHub yourself. `curl -s -X POST http://conversation-api.dev-system:8080/refresh` fetches it
+  again (at most once a minute) and pushes it to the dashboard.
 - **Memory** is a separate copy from the Mac's, taken 2026-11-18 (baseline in
   `/workspaces/.conversation/memory-baseline-2026-11-18`). Both sides keep writing; they are merged by
   hand from time to time.

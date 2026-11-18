@@ -231,3 +231,83 @@ test('a pasted image or file is not a title, and references become links', async
   ]);
   assert.deepEqual(extractRefs('a path like src/app#3 inside code is also a ref; plain #12 is not'), ['https://github.com/src/app/issues/3']);
 });
+
+// ── conversation-api (server/) ─────────────────────────────────────────────────────────────────
+import {
+  sectionSearches, sectionQuery, checksOf, shapePr, shapeSection
+} from '../conversation-mode/server/github.mjs';
+import { acceptKey, frame, textFrame, readFrames } from '../conversation-mode/server/ws.mjs';
+
+test('the server\'s searches stay under GitHub\'s 256-character cap, one query per section', () => {
+  for (const p of PROJECTS) {
+    for (const section of ['mine', 'reviewing', 'issues']) {
+      for (const q of Object.values(sectionSearches(p.repos, section))) {
+        assert.ok(q.length <= 256, `${ p.id } ${ section }: ${ q.length }`);
+      }
+      assert.ok(sectionQuery(p.repos, section).startsWith('query { viewer { login }'));
+    }
+  }
+  assert.deepEqual(Object.keys(sectionSearches(['a/b'], 'reviewing')), ['requested', 'reviewed']);
+});
+
+const prNode = (o = {}) => ({
+  number: 7, title: 'T', url: 'https://github.com/a/b/pull/7', isDraft: false, updatedAt: '2026-11-18T10:00:00Z', reviewDecision: '', author: { login: 'cody' }, repository: { nameWithOwner: 'a/b' },
+  commits: { nodes: [{ commit: { committedDate: '2026-11-18T09:00:00Z', statusCheckRollup: { state: 'FAILURE', contexts: { nodes: [
+    { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' },
+    { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'FAILURE' },
+    { __typename: 'CheckRun', status: 'IN_PROGRESS', conclusion: null },
+    { __typename: 'StatusContext', state: 'ERROR' },
+  ] } } } }] },
+  latestOpinionatedReviews: { nodes: [] },
+  reviews: { nodes: [{ author: { login: 'me' }, submittedAt: '2026-11-17T00:00:00Z' }, { author: { login: 'x' }, submittedAt: '2026-11-18T00:00:00Z' }] },
+  ...o,
+});
+
+test('a pull request comes out in the shape the dashboard draws', () => {
+  assert.deepEqual(checksOf(prNode()), { state: 'FAILURE', failing: 2, pending: 1, total: 4 });
+  const pr = shapePr(prNode({ latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] } }), 'me', true);
+
+  assert.equal(pr.key, 'a/b#7');
+  assert.equal(pr.repo, 'a/b');
+  assert.equal(pr.author, 'cody');
+  assert.equal(pr.approved, true);
+  assert.equal(pr.reviewedAt, '2026-11-17T00:00:00Z');
+  assert.equal(pr.pushedAt, '2026-11-18T09:00:00Z');
+  assert.equal(pr.reviewRequested, true);
+  assert.equal(checksState(pr), 'failing');
+  assert.equal(pushedSinceReview(pr), true);
+});
+
+test('a section answer: requested first, a reviewed one already requested not twice', () => {
+  const data = {
+    viewer: { login: 'me' }, requested: { nodes: [prNode({ number: 1 })] }, reviewed: { nodes: [prNode({ number: 1 }), prNode({ number: 2 })] }
+  };
+  const s = shapeSection('reviewing', data);
+
+  assert.equal(s.login, 'me');
+  assert.deepEqual(s.reviewing.map((p) => `${ p.number }:${ p.reviewRequested }`), ['1:true', '2:false']);
+  assert.deepEqual(shapeSection('issues', { viewer: { login: 'me' }, issues: { nodes: [{ number: 3, title: 'I', url: 'u', repository: { nameWithOwner: 'a/b' }, milestone: { title: 'v2.17.0' }, labels: { nodes: [{ name: 'kind/bug' }] } }] } }).issues[0].milestone, 'v2.17.0');
+});
+
+test('the WebSocket handshake and frames, both ways', () => {
+  // RFC 6455's own example.
+  assert.equal(acceptKey('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=');
+  const long = 'x'.repeat(70000);
+
+  for (const text of ['hi', 'y'.repeat(300), long]) {
+    const { frames, rest } = readFrames(textFrame(text));
+
+    assert.equal(frames[0].opcode, 1);
+    assert.equal(frames[0].payload.toString(), text);
+    assert.equal(rest.length, 0);
+  }
+  // A browser's frame is masked; a half-arrived one waits for the rest.
+  const mask = Buffer.from([1, 2, 3, 4]);
+  const payload = Buffer.from('ping!');
+  const masked = Buffer.concat([Buffer.from([0x89, 0x80 | payload.length]), mask, Buffer.from(payload.map((b, i) => b ^ mask[i % 4]))]);
+  const half = readFrames(masked.subarray(0, 4));
+
+  assert.equal(half.frames.length, 0);
+  assert.equal(readFrames(masked).frames[0].payload.toString(), 'ping!');
+  assert.equal(frame(0xa, payload)[0], 0x8a);
+});

@@ -31,6 +31,7 @@ import {
 import { readLinks, updateLinks } from './links';
 import { readTranscripts } from './transcripts';
 import { myWork, pullRequest, issuesByNumber } from '../github';
+import { fetchWork, requestRefresh, listenForWork } from './work-client';
 
 /** How often what each agent is doing is asked again. */
 const STATE_POLL_MS = 5000;
@@ -90,6 +91,11 @@ export default {
       transcripts:  {},
       /** Chats this page has already tried to name, so a failed rename is not retried every poll. */
       titled:       {},
+      /**
+       * Where GitHub comes from: `server` (conversation-api asks and pushes; the page listens) or
+       * `browser` (the page asks itself, every ten minutes) when the server cannot be reached.
+       */
+      workSource:   '',
     };
   },
 
@@ -98,12 +104,9 @@ export default {
     await Promise.all([this.loadChats(), this.loadLinks()]);
     this.poll = setInterval(() => this.refreshStates(), STATE_POLL_MS);
     this.transcriptPoll = setInterval(() => this.refreshTranscripts(), TRANSCRIPT_POLL_MS);
-    this.workPoll = setInterval(() => this.loadWork(), WORK_REFRESH_MS);
     this.refreshStates();
     this.refreshTranscripts();
-    if (Date.now() - this.workLoadedAt > WORK_REFRESH_MS) {
-      this.loadWork();
-    }
+    this.startWork();
   },
 
   beforeUnmount() {
@@ -111,6 +114,7 @@ export default {
     clearInterval(this.transcriptPoll);
     clearInterval(this.workPoll);
     clearTimeout(this.workSoon);
+    this.workListener?.close();
   },
 
   computed: {
@@ -247,6 +251,73 @@ export default {
 
     /* ── GitHub ─────────────────────────────────────────────────────────────────────────────── */
 
+    /**
+     * The server when it is there: its answer now, then every answer it pushes. The page asking
+     * GitHub itself, every ten minutes, when it is not - a fresh mf-dev without conversation-api,
+     * or one where it is down - so the dashboard is never left empty for want of it.
+     */
+    async startWork() {
+      const first = await fetchWork();
+
+      if (first) {
+        this.workSource = 'server';
+        this.applyWork(first);
+        this.workListener = listenForWork((m) => this.applyWork(m));
+
+        return;
+      }
+      this.workSource = 'browser';
+      this.workPoll = setInterval(() => this.loadWork(), WORK_REFRESH_MS);
+      if (Date.now() - this.workLoadedAt > WORK_REFRESH_MS) {
+        this.loadWork();
+      }
+    },
+
+    /** One answer from the server: `{ at, work, errors, refreshing }`. */
+    applyWork(m) {
+      if (m?.at) {
+        this.work = { ...EMPTY_WORK(), ...m.work };
+        this.workErrors = m.errors || [];
+        this.workLoadedAt = m.at;
+        this.saveCachedWork();
+      }
+      this.workLoading = !!m?.refreshing;
+    },
+
+    /** A refresh, asked of whichever is answering: the server (which may say it is too soon) or GitHub. */
+    async refreshWork(reason = 'refresh button') {
+      if (this.workSource !== 'server') {
+        return this.loadWork();
+      }
+      const answer = await requestRefresh(reason);
+
+      if (!answer) {
+        // The server went away: this page asks GitHub itself until it is reloaded.
+        this.workListener?.close();
+        this.workSource = 'browser';
+        this.workPoll = setInterval(() => this.loadWork(), WORK_REFRESH_MS);
+
+        return this.loadWork();
+      }
+      if (answer.started) {
+        this.workLoading = true;
+      }
+    },
+
+    saveCachedWork() {
+      try {
+        // Without the bodies: a pull request's description is most of its size and nothing here
+        // draws it.
+        const slim = (list) => (list || []).map(({ body, ...rest }) => rest);
+
+        window.localStorage.setItem(WORK_CACHE_KEY, JSON.stringify({
+          at: this.workLoadedAt, work: { ...this.work, mine: slim(this.work.mine), reviewing: slim(this.work.reviewing), issues: slim(this.work.issues) }
+        }));
+      } catch {
+        // Storage full or blocked: the next visit loads it again.
+      }
+    },
+
     loadCachedWork() {
       try {
         const cached = JSON.parse(window.localStorage.getItem(WORK_CACHE_KEY) || 'null');
@@ -306,17 +377,7 @@ export default {
       if (answers.some(Boolean)) {
         this.work = mergeWork(answers);
         this.workLoadedAt = Date.now();
-        try {
-          // Without the bodies: a pull request's description is most of its size and nothing here
-          // draws it.
-          const slim = (list) => list.map(({ body, ...rest }) => rest);
-
-          window.localStorage.setItem(WORK_CACHE_KEY, JSON.stringify({
-            at: this.workLoadedAt, work: { ...this.work, mine: slim(this.work.mine), reviewing: slim(this.work.reviewing), issues: slim(this.work.issues) }
-          }));
-        } catch {
-          // Storage full or blocked: the next visit loads it again.
-        }
+        this.saveCachedWork();
       }
       this.workLoading = false;
     },
@@ -327,7 +388,7 @@ export default {
       }
       this.workSoon = setTimeout(() => {
         this.workSoon = null;
-        this.loadWork();
+        this.refreshWork('a chat finished a turn');
       }, WORK_AFTER_TURN_DELAY_MS);
     },
 
@@ -576,7 +637,7 @@ export default {
       @open-chat="openChat"
       @start-chat="createChat"
       @new-chat="createChat()"
-      @reload="loadWork"
+      @reload="refreshWork('refresh button')"
     />
     <ConversationChats
       v-if="chatsShown"

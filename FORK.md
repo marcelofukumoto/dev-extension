@@ -38,6 +38,11 @@ Edits to upstream files, each marked with a comment naming this file:
 - `/workspaces/.conversation/` on the node: the interrupt-duty checkout, `bin/conv-shell` (the
   command tunnel) and the tools. Housekeeping skips dot-directories, which is why it is one.
 - The Secret `dev-system/conversation-env` (key `.env`), which conv-shell copies into the checkout.
+- **conversation-api** in dev-system (`pkg/dev-extension/conversation-mode/server/`, deployed with
+  its `deploy.sh`): asks GitHub every ten minutes for the dashboard and pushes each answer to the
+  pages on a WebSocket; agents read it at `http://conversation-api.dev-system:8080/work`. The page
+  falls back to asking GitHub itself when it cannot reach it. Its cache is
+  `/var/lib/rancher/dev-workspaces/.conversation/cache/work.json` on the node.
 - The ConfigMap `dev-system/conversation-links` (key `links.json`): which chat is about which pull
   request or issue, written by the dashboard (and by an agent with kubectl).
 

@@ -1,0 +1,108 @@
+# conversation-api on mf-dev (dev-system): the server Conversation mode's dashboard listens to.
+# Deployed by deploy.sh, which also puts the code in the conversation-api-code ConfigMap.
+#
+# What it can reach, deliberately little: no Kubernetes API (no token mounted), the
+# conversation-env Secret as a read-only file (for GitHub's token), and one directory on the node
+# for its cache. The page reaches it through the apiserver's service proxy, behind Rancher's login;
+# agents in the cluster at http://conversation-api.dev-system:8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: conversation-api
+  namespace: dev-system
+  labels:
+    app: conversation-api
+spec:
+  selector:
+    app: conversation-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: conversation-api
+  namespace: dev-system
+  labels:
+    app: conversation-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: conversation-api
+  template:
+    metadata:
+      labels:
+        app: conversation-api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      initContainers:
+        # The cache directory is made by the kubelet as root; the server runs as 1000.
+        - name: cache-owner
+          image: node:24
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "chown 1000:1000 /cache && chmod 700 /cache"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      containers:
+        - name: api
+          image: node:24
+          imagePullPolicy: IfNotPresent
+          command: ["node", "/app/server/server.mjs"]
+          env:
+            - name: ENV_FILE
+              value: /etc/conversation/.env
+            - name: CACHE_FILE
+              value: /cache/work.json
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              memory: 256Mi
+          volumeMounts:
+            - name: code
+              mountPath: /app
+              readOnly: true
+            - name: env
+              mountPath: /etc/conversation
+              readOnly: true
+            - name: cache
+              mountPath: /cache
+      volumes:
+        - name: code
+          configMap:
+            name: conversation-api-code
+            items:
+              - key: server.mjs
+                path: server/server.mjs
+              - key: github.mjs
+                path: server/github.mjs
+              - key: ws.mjs
+                path: server/ws.mjs
+              - key: projects.mjs
+                path: projects.mjs
+        - name: env
+          secret:
+            secretName: conversation-env
+        - name: cache
+          hostPath:
+            path: /var/lib/rancher/dev-workspaces/.conversation/cache
+            type: DirectoryOrCreate
