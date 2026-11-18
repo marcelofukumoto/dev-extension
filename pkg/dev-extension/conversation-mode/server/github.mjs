@@ -114,6 +114,8 @@ export function shapePr(node, login, reviewRequested = false) {
     reviewRequested,
     requestedFrom,
     changesBy,
+    // Your own standing verdict on it (APPROVED, CHANGES_REQUESTED), '' when you gave none.
+    myReview: opinions.find((r) => r.author?.login === login)?.state || '',
     // What stands between it and a merge, as GitHub sees it: CLEAN, BLOCKED (a branch rule), BEHIND,
     // DIRTY (conflicts), UNSTABLE (a non-required check fails), UNKNOWN (not worked out yet).
     mergeable:  node.mergeable || '',

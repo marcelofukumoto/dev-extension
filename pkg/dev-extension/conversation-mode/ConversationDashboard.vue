@@ -24,12 +24,12 @@ const MARKS_POLL_MS = 60000;
 const ATTENTION_SHOWN = 10;
 
 const KIND_LABEL = {
-  question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', ready: 'Ready'
+  question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', ready: 'Ready', waiting: 'Waiting review request'
 };
 
 const FILTERS = [
   { id: 'all', label: 'All', kinds: null },
-  { id: 'reviews', label: 'Reviews', kinds: ['review', 'rereview'] },
+  { id: 'reviews', label: 'Reviews', kinds: ['review', 'rereview', 'waiting'] },
   { id: 'blocked', label: 'Blocked', kinds: ['blocked'] },
   { id: 'questions', label: 'Questions', kinds: ['question'] },
   { id: 'ready', label: 'Ready', kinds: ['ready'] },
@@ -289,7 +289,11 @@ export default {
     },
 
     /** The row's chip: its kind, and "Draft" before a review of a draft pull request. */
-    kindLabel: (row) => `${ row.draft ? 'Draft ' : '' }${ row.draft ? (KIND_LABEL[row.kind] || row.kind).toLowerCase() : (KIND_LABEL[row.kind] || row.kind) }`,
+    kindLabel: (row) => {
+      const label = KIND_LABEL[row.kind] || row.kind;
+
+      return row.draft && (row.kind === 'review' || row.kind === 'rereview') ? `Draft ${ label.toLowerCase() }` : label;
+    },
 
     /** The stage strip of a team row: the Dev product's steps for a fix or a review. */
     stepsOf(item) {
@@ -1200,6 +1204,8 @@ export default {
       &--question { background: var(--conv-question-bg); color: var(--conv-question); }
       &--blocked { background: var(--conv-blocked-bg); color: var(--conv-blocked); }
       &--ready { background: var(--conv-ok-bg); color: var(--conv-ok); }
+      // The author's move, not yours: grey, and on two lines when it needs them.
+      &--waiting { background: var(--conv-subtle); color: var(--conv-muted); line-height: 1.2; white-space: normal; }
       // Nobody is waiting on a draft's review yet: the same colour, quieter.
       &--draft { background: none; box-shadow: inset 0 0 0 1px currentColor; border: 0; opacity: 0.85; }
     }

@@ -219,7 +219,7 @@ export function isArchived(link) {
 }
 
 const RANK = {
-  question: 0, blocked: 1, review: 2, rereview: 3, ready: 4
+  question: 0, blocked: 1, review: 2, rereview: 3, ready: 4, waiting: 5
 };
 
 /**
@@ -228,8 +228,10 @@ const RANK = {
  * - question: a chat that stopped to ask you something (its agent state is `input`)
  * - blocked:  a pull request of yours with failing checks or changes requested
  * - review:   GitHub is asking you for a review now
- * - rereview: you reviewed it and it has been pushed to since
+ * - rereview: you reviewed it, and you were asked to review it again
  * - ready:    yours, approved, checks not failing, not a draft
+ * - waiting:  you reviewed it and it was pushed to since, but nobody has asked you again yet -
+ *             the author's next step (GitHub's re-request button beside your name), so last
  *
  * @param {object} work      mergeWork()'s answer.
  * @param {Array}  chats     [{ id, title }]
@@ -269,13 +271,19 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
   for (const pr of work.reviewing || []) {
     const key = subjectKey(pr.repo, pr.number);
 
-    if (pr.reviewRequested) {
+    if (pr.reviewRequested && pr.reviewedAt) {
+      rows.push({
+        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `${ pr.author } asked you again`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('rereview', pr),
+      });
+    } else if (pr.reviewRequested) {
       rows.push({
         kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('review', pr),
       });
     } else if (pushedSinceReview(pr)) {
+      const since = pr.myReview === 'CHANGES_REQUESTED' ? 'you asked for changes' : 'your review';
+
       rows.push({
-        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('rereview', pr),
+        kind: 'waiting', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since ${ since } - not asked again yet`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('waiting', pr),
       });
     }
   }

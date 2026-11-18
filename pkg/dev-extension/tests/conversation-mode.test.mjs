@@ -130,6 +130,7 @@ test('what needs you, most urgent first, with the chat that is on it', () => {
       pr({ number: 20, reviewRequested: true }),
       pr({ number: 21, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T00:00:00Z' }),
       pr({ number: 22, reviewedAt: '2026-11-18T00:00:00Z', pushedAt: '2026-11-17T00:00:00Z' }),
+      pr({ number: 23, reviewRequested: true, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T00:00:00Z' }),
     ],
     issues: [],
   };
@@ -138,7 +139,7 @@ test('what needs you, most urgent first, with the chat that is on it', () => {
   const rows = attentionRows(work, chats, { 'p-lte-duty-1': 'input' }, links);
 
   assert.deepEqual(rows.map((r) => `${ r.kind }:${ r.subject?.number || r.chatId }`), [
-    'question:p-lte-duty-1', 'blocked:10', 'review:20', 'rereview:21', 'ready:11',
+    'question:p-lte-duty-1', 'blocked:10', 'review:20', 'rereview:23', 'ready:11', 'waiting:21',
   ]);
   assert.equal(rows.find((r) => r.kind === 'review').chatId, 'p-lte-duty-2');
   assert.equal(rows.find((r) => r.kind === 'blocked').why, '1 check failing');
@@ -382,7 +383,8 @@ test('a subject\'s section: GitHub first, then what was recorded, then its kind'
   assert.equal(sectionOf({ kind: 'pr', role: 'developer' }, null), 'developer');
   assert.equal(sectionOf({ kind: 'issue' }, null), 'developer');
   assert.equal(sectionOf({ kind: 'pr' }, null), 'reviewer');
-  assert.equal(statusOf('reviewer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T00:00:00Z' }) }).text, 'Pushed since your review');
+  assert.equal(statusOf('reviewer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T00:00:00Z' }) }).text, 'Waiting review request');
+  assert.equal(statusOf('reviewer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewRequested: true, reviewedAt: '2026-11-17T00:00:00Z' }) }).text, 'Asked again');
   assert.equal(statusOf('developer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewDecision: 'CHANGES_REQUESTED' }) }).stage, 4);
 });
 
@@ -653,4 +655,16 @@ test('nothing to do: old marks of rows that are gone are forgotten, live ones ke
   N.prune(doc, new Set(['live']), Date.parse('2026-11-18T00:00:00Z'));
 
   assert.deepEqual(Object.keys(doc.marks).sort(), ['live', 'recent']);
+});
+
+test('pushed since you asked for changes, not asked again: Waiting review request, the author\'s move', () => {
+  const rows = attentionRows({
+    reviewing: [{
+      repo: 'rancher/rancher-ai-ui', number: 319, title: 'Implement notifications', url: 'u', author: 'torchiaf',
+      reviewRequested: false, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T17:40:00Z', myReview: 'CHANGES_REQUESTED',
+    }],
+  });
+
+  assert.equal(rows[0].kind, 'waiting');
+  assert.equal(rows[0].why, 'torchiaf pushed since you asked for changes - not asked again yet');
 });

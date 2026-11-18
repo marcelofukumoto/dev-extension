@@ -109,11 +109,12 @@ function reviewerStatus(it) {
   if (it.reviewRequested && !it.reviewedAt) {
     return { text: 'Your review', tone: 'warn', stage: 0 };
   }
-  if (pushedSinceReview(it)) {
-    return { text: 'Pushed since your review', tone: 'warn', stage: 3 };
-  }
   if (it.reviewRequested) {
     return { text: 'Asked again', tone: 'warn', stage: 3 };
+  }
+  // Pushed to since, and not asked again: the author's move.
+  if (pushedSinceReview(it)) {
+    return { text: 'Waiting review request', tone: '', stage: 3 };
   }
 
   return { text: 'Reviewed', tone: '', stage: 2 };
