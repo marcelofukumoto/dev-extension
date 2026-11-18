@@ -161,6 +161,10 @@ export function blockedReason(pr) {
     const n = pr.checks.failing;
 
     parts.push(names.length ? `Failing: ${ names.slice(0, 3).join(', ') }${ n > 3 ? ` (+${ n - 3 } more)` : '' }` : `${ n } check${ n === 1 ? '' : 's' } failing`);
+    // rancher/dashboard's Description check is the PR template's checklist: say which box is open.
+    if (names.includes('Description') && pr.unchecked?.length) {
+      parts.push(`Unticked: "${ pr.unchecked[0] }"${ pr.unchecked.length > 1 ? ` (+${ pr.unchecked.length - 1 } more)` : '' }`);
+    }
   }
 
   return parts.join(' · ');
@@ -260,11 +264,11 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
     // Changes requested and the review asked again: it waits on the reviewer - not here, unless a check fails.
     if (checks === 'failing' || (review === 'changes' && !changesAddressed(pr))) {
       rows.push({
-        kind: 'blocked', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: blockedReason(pr), author: pr.author || '', stamp: prStamp('blocked', pr),
+        kind: 'blocked', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: blockedReason(pr), author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('blocked', pr),
       });
     } else if (review === 'approved') {
       rows.push({
-        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: readyReason(pr), author: pr.author || '', stamp: prStamp('ready', pr),
+        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: readyReason(pr), author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('ready', pr),
       });
     }
   }
@@ -273,17 +277,17 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
 
     if (pr.reviewRequested && pr.reviewedAt) {
       rows.push({
-        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `${ pr.author } asked you again`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('rereview', pr),
+        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `${ pr.author } asked you again`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('rereview', pr),
       });
     } else if (pr.reviewRequested) {
       rows.push({
-        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('review', pr),
+        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('review', pr),
       });
     } else if (pushedSinceReview(pr)) {
       const since = pr.myReview === 'CHANGES_REQUESTED' ? 'you asked for changes' : 'your review';
 
       rows.push({
-        kind: 'waiting', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since ${ since } - not asked again yet`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('waiting', pr),
+        kind: 'waiting', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since ${ since } - not asked again yet`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('waiting', pr),
       });
     }
   }

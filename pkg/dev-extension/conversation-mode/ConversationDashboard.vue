@@ -6,6 +6,7 @@
 // the chats, what each agent is doing and which chat is about which pull request. Every row that has a
 // chat opens it; every row that has none can start one, named for it and opened with its link.
 import AppIcon from '../components/focus/AppIcon.vue';
+import ReviewerMarks from './ReviewerMarks.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
@@ -42,7 +43,7 @@ const STATE_LABEL = {
 export default {
   name: 'ConversationDashboard',
 
-  components: { AppIcon },
+  components: { AppIcon, ReviewerMarks },
 
   emits: ['open-chat', 'start-chat', 'new-chat', 'reload', 'archive', 'view-chats'],
 
@@ -563,6 +564,12 @@ export default {
                 <template v-if="row.at"> · {{ when(row.at) }}</template>
                 <template v-if="row.kind === 'question'"> · the agent is waiting for your answer</template>
               </span>
+              <ReviewerMarks
+                v-if="row.reviewers && row.reviewers.length"
+                class="dash__reviewers"
+                :reviewers="row.reviewers"
+                :me="work.login"
+              />
               <span
                 v-if="doing(row.chatId)"
                 class="dash__doing"
@@ -1257,6 +1264,10 @@ export default {
 
       &--working::before { animation: dash-doing 1.4s ease-in-out infinite; }
       &--input::before { background: var(--conv-orange); }
+    }
+
+    &__reviewers {
+      margin-top: 2px;
     }
 
     &__row-meta,

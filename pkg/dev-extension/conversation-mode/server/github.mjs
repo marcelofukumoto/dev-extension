@@ -9,15 +9,15 @@ const FAILED_RUN = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRE
 const FAILED_STATUS = new Set(['FAILURE', 'ERROR']);
 
 const PR_FIELDS = `
-  number title url isDraft updatedAt reviewDecision mergeable mergeStateStatus
+  number title url isDraft updatedAt reviewDecision mergeable mergeStateStatus body
   author { login }
   repository { nameWithOwner }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 60) { nodes {
     __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state }
   } } } } } }
   latestOpinionatedReviews(first: 10) { nodes { state body author { login } } }
-  reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
-  reviews(last: 30) { nodes { author { login } submittedAt } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }
+  reviews(last: 30) { nodes { author { login } submittedAt state } }
 `;
 
 const ISSUE_FIELDS = `
@@ -81,6 +81,53 @@ export function checksOf(node) {
   } : null;
 }
 
+/**
+ * Every reviewer and where each stands, as GitHub's Reviewers box shows them: `pending` (asked and
+ * not answered since - a yellow dot), `changes` (red), `approved` (green), `commented` (grey). Asked
+ * again outranks what they said before, as it does there. The author is not a reviewer.
+ */
+export function reviewersOf(node) {
+  const author = node.author?.login || '';
+  const out = new Map();
+
+  for (const r of node.reviews?.nodes || []) {
+    const login = r?.author?.login;
+
+    if (login && login !== author && r.state === 'COMMENTED' && !out.has(login)) {
+      out.set(login, { login, state: 'commented' });
+    }
+  }
+  for (const r of node.latestOpinionatedReviews?.nodes || []) {
+    const login = r?.author?.login;
+
+    if (login && login !== author && (r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED')) {
+      out.set(login, { login, state: r.state === 'APPROVED' ? 'approved' : 'changes' });
+    }
+  }
+  for (const r of node.reviewRequests?.nodes || []) {
+    const who = r?.requestedReviewer;
+    const login = who?.login || (who?.slug ? `team:${ who.slug }` : '');
+
+    if (login) {
+      out.set(login, { login, state: 'pending', ...(who.slug ? { team: true } : {}) });
+    }
+  }
+  const order = {
+    changes: 0, pending: 1, approved: 2, commented: 3
+  };
+
+  return [...out.values()].sort((a, b) => order[a.state] - order[b.state] || a.login.localeCompare(b.login));
+}
+
+/** The checklist boxes the description leaves unticked (rancher/dashboard's Description check wants them all). */
+export function uncheckedBoxes(body) {
+  return String(body || '').split('\n')
+    .map((l) => l.match(/^\s*[-*]\s+\[ \]\s+(.+?)\s*$/)?.[1])
+    .filter(Boolean)
+    .map((t) => (t.length > 120 ? `${ t.slice(0, 119) }…` : t))
+    .slice(0, 5);
+}
+
 /** A pull request as the dashboard draws it (github.ts's GithubPr, the fields it reads). */
 export function shapePr(node, login, reviewRequested = false) {
   const repo = node.repository?.nameWithOwner || '';
@@ -115,7 +162,9 @@ export function shapePr(node, login, reviewRequested = false) {
     requestedFrom,
     changesBy,
     // Your own standing verdict on it (APPROVED, CHANGES_REQUESTED), '' when you gave none.
-    myReview: opinions.find((r) => r.author?.login === login)?.state || '',
+    myReview:  opinions.find((r) => r.author?.login === login)?.state || '',
+    reviewers: reviewersOf(node),
+    unchecked: uncheckedBoxes(node.body),
     // What stands between it and a merge, as GitHub sees it: CLEAN, BLOCKED (a branch rule), BEHIND,
     // DIRTY (conflicts), UNSTABLE (a non-required check fails), UNKNOWN (not worked out yet).
     mergeable:  node.mergeable || '',

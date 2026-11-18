@@ -668,3 +668,50 @@ test('pushed since you asked for changes, not asked again: Waiting review reques
   assert.equal(rows[0].kind, 'waiting');
   assert.equal(rows[0].why, 'torchiaf pushed since you asked for changes - not asked again yet');
 });
+
+// ── Reviewers and the PR checklist (server/github.mjs) ──────────────────────────────────────────
+
+test('reviewers as GitHub\'s Reviewers box shows them: asked again outranks what they said', async() => {
+  const { reviewersOf } = await import('../conversation-mode/server/github.mjs');
+  const node = {
+    author: { login: 'torchiaf' },
+    reviews: { nodes: [
+      { author: { login: 'copilot' }, state: 'COMMENTED' },
+      { author: { login: 'torchiaf' }, state: 'COMMENTED' },
+      { author: { login: 'marcelofukumoto' }, state: 'CHANGES_REQUESTED' },
+    ] },
+    latestOpinionatedReviews: { nodes: [
+      { author: { login: 'marcelofukumoto' }, state: 'CHANGES_REQUESTED' },
+      { author: { login: 'codyrancher' }, state: 'APPROVED' },
+      { author: { login: 'sushant-suse' }, state: 'CHANGES_REQUESTED' },
+    ] },
+    reviewRequests: { nodes: [
+      { requestedReviewer: { __typename: 'User', login: 'oboc-sts' } },
+      { requestedReviewer: { __typename: 'User', login: 'sushant-suse' } },
+      { requestedReviewer: { __typename: 'Team', slug: 'dev' } },
+    ] },
+  };
+
+  assert.deepEqual(reviewersOf(node), [
+    { login: 'marcelofukumoto', state: 'changes' },
+    { login: 'oboc-sts', state: 'pending' },
+    { login: 'sushant-suse', state: 'pending' },
+    { login: 'team:dev', state: 'pending', team: true },
+    { login: 'codyrancher', state: 'approved' },
+    { login: 'copilot', state: 'commented' },
+  ]);
+});
+
+test('the Description check names the unticked checklist box', async() => {
+  const { uncheckedBoxes } = await import('../conversation-mode/server/github.mjs');
+  const { blockedReason } = await import('../conversation-mode/projects.mjs');
+  const body = '## Checklist\n- [x] The PR has a Milestone\n- [ ] The PR has reviewed with UX and tested in light and dark mode, or there are no UX changes\n  - [ ] nested too\n* [X] done';
+
+  assert.deepEqual(uncheckedBoxes(body), ['The PR has reviewed with UX and tested in light and dark mode, or there are no UX changes', 'nested too']);
+  assert.equal(blockedReason({
+    checks: {
+      total: 5, failing: 1, failingNames: ['Description']
+    },
+    unchecked: uncheckedBoxes(body).slice(0, 1),
+  }), 'Failing: Description · Unticked: "The PR has reviewed with UX and tested in light and dark mode, or there are no UX changes"');
+});

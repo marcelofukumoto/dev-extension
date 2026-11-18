@@ -9,6 +9,7 @@
 import {
   PROJECTS, subjectKey, subjectOf, shortRef, checksState, reviewState, pushedSinceReview, blockedReason, projectOf, chatsBySubject, ago
 } from './projects.mjs';
+import ReviewerMarks from './ReviewerMarks.vue';
 
 const TABS = [
   { id: 'mine', label: 'My pull requests' },
@@ -23,6 +24,8 @@ const EMPTY_FILTERS = () => ({
 
 export default {
   name: 'ConversationBrowser',
+
+  components: { ReviewerMarks },
 
   emits: ['open-chat', 'start-chat'],
 
@@ -382,6 +385,13 @@ export default {
                     v-if="tab === 'reviewed' && pushed(x)"
                     class="br__pill br__pill--pending"
                   >pushed since</span>
+                  <ReviewerMarks
+                    v-if="x.reviewers && x.reviewers.length"
+                    class="br__reviewers"
+                    :reviewers="x.reviewers"
+                    :me="work.login"
+                    :max="3"
+                  />
                 </td>
                 <td
                   v-if="tab === 'mine'"
@@ -652,6 +662,11 @@ export default {
       white-space:   nowrap;
 
       &:disabled { opacity: 0.6; cursor: default; }
+    }
+
+    &__reviewers {
+      display:    flex;
+      margin-top: 4px;
     }
 
     &__pill {
