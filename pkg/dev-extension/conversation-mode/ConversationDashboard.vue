@@ -657,13 +657,14 @@ export default {
 
     &__date {
       margin:    0;
-      color:     var(--muted, #999);
+      color:     var(--conv-meta);
       font-size: 13px;
     }
 
     &__greeting {
-      font-size:   26px;
+      font-size:   28px;
       font-weight: 600;
+      color:       var(--conv-ink);
     }
 
     &__summary {
@@ -674,7 +675,7 @@ export default {
 
     &__updated {
       margin-left: 8px;
-      color:       var(--muted, #999);
+      color:       var(--conv-muted);
       font-size:   12px;
     }
 
@@ -694,7 +695,7 @@ export default {
       background:     var(--body-bg);
 
       &--warn .dash__tile-value {
-        color: var(--conv-warn);
+        color: var(--conv-orange-text);
       }
     }
 
@@ -704,7 +705,7 @@ export default {
     }
 
     &__tile-label {
-      color:     var(--muted, #999);
+      color:     var(--conv-muted);
       font-size: 12px;
     }
 
@@ -712,8 +713,8 @@ export default {
       margin:        0 0 12px;
       padding:       8px 12px;
       border-radius: 6px;
-      background:    rgba(214, 69, 69, 0.12);
-      color:         var(--error, #d64545);
+      background:    var(--conv-blocked-bg);
+      color:         var(--conv-blocked);
       font-size:     13px;
     }
 
@@ -730,10 +731,10 @@ export default {
 
     &__card {
       margin-bottom: 16px;
-      padding:       14px 16px;
-      border:        1px solid var(--border);
+      padding:       16px 18px;
+      border:        1px solid var(--conv-line);
       border-radius: 12px;
-      background:    var(--body-bg);
+      background:    var(--conv-surface);
 
       .dash__grid & {
         margin-bottom: 0;
@@ -778,7 +779,7 @@ export default {
 
     &__none {
       margin:    8px 0;
-      color:     var(--muted, #999);
+      color:     var(--conv-muted);
       font-size: 13px;
     }
 
@@ -808,10 +809,10 @@ export default {
       text-align:    center;
 
       &--review,
-      &--rereview { background: rgba(80, 120, 230, 0.14); color: #4a6fd1; }
-      &--question { background: rgba(245, 166, 35, 0.18); color: #b5730a; }
-      &--blocked { background: rgba(214, 69, 69, 0.14); color: #c23b3b; }
-      &--ready { background: rgba(48, 186, 120, 0.16); color: var(--conv-accent-text); }
+      &--rereview { background: var(--conv-review-bg); color: var(--conv-review); }
+      &--question { background: var(--conv-question-bg); color: var(--conv-question); }
+      &--blocked { background: var(--conv-blocked-bg); color: var(--conv-blocked); }
+      &--ready { background: var(--conv-ok-bg); color: var(--conv-ok); }
     }
 
     &__row-main {
@@ -834,7 +835,7 @@ export default {
 
     &__row-meta,
     &__muted {
-      color:     var(--muted, #999);
+      color:     var(--conv-muted);
       font-size: 12px;
     }
 
@@ -880,20 +881,32 @@ export default {
       padding:    0;
     }
 
+    // The mockup's "My tasks": a mint panel of white rows.
+    &__chats {
+      border-color: var(--conv-mint-line);
+      background:   var(--conv-mint);
+    }
+
+    &__chatlist {
+      display:        flex;
+      flex-direction: column;
+      gap:            8px;
+    }
+
     &__chat {
-      display:     flex;
-      align-items: center;
-      gap:         8px;
-      width:       100%;
-      padding:     8px 4px;
-      border:      0;
-      border-top:  1px solid var(--border);
-      background:  none;
+      display:       flex;
+      align-items:   center;
+      gap:           8px;
+      width:         100%;
+      padding:       10px 12px;
+      border:        1px solid var(--conv-line);
+      border-radius: 10px;
+      background:    var(--conv-surface);
       color:       var(--body-text);
       cursor:      pointer;
       text-align:  left;
 
-      &:hover { background: rgba(127, 127, 127, 0.08); }
+      &:hover { border-color: var(--conv-mint-line); }
     }
 
     &__chat-title {
@@ -905,7 +918,7 @@ export default {
     }
 
     &__chat-meta {
-      color:       var(--muted, #999);
+      color:       var(--conv-muted);
       font-size:   11px;
       white-space: nowrap;
     }
@@ -915,11 +928,11 @@ export default {
       width:         8px;
       height:        8px;
       border-radius: 50%;
-      background:    var(--muted, #999);
+      background:    var(--conv-muted);
       opacity:       0.5;
 
       &--working { background: var(--conv-accent); opacity: 1; }
-      &--input { background: var(--warning, #f5a623); opacity: 1; }
+      &--input { background: var(--conv-orange); opacity: 1; }
       &--idle,
       &--finished { background: var(--conv-accent); opacity: 0.6; }
     }
@@ -929,7 +942,7 @@ export default {
 
       h3 {
         margin-bottom:  4px;
-        color:          var(--muted, #999);
+        color:          var(--conv-muted);
         font-size:      12px;
         font-weight:    600;
         letter-spacing: 0.04em;
@@ -980,15 +993,16 @@ export default {
       margin-right:  4px;
       padding:       1px 8px;
       border-radius: 10px;
-      background:    rgba(127, 127, 127, 0.12);
+      background:    var(--conv-subtle);
+      color:         var(--conv-muted);
       font-size:     11px;
       white-space:   nowrap;
 
       &--failing,
-      &--changes { background: rgba(214, 69, 69, 0.14); color: #c23b3b; }
-      &--pending { background: rgba(245, 166, 35, 0.18); color: #b5730a; }
+      &--changes { background: var(--conv-blocked-bg); color: var(--conv-blocked); }
+      &--pending { background: var(--conv-question-bg); color: var(--conv-question); }
       &--passing,
-      &--approved { background: rgba(48, 186, 120, 0.16); color: var(--conv-accent-text); }
+      &--approved { background: var(--conv-ok-bg); color: var(--conv-ok); }
       &--draft { opacity: 0.8; }
     }
   }

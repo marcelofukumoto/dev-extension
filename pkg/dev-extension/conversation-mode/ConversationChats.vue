@@ -228,6 +228,7 @@ export default {
           v-if="opened[chat.id]"
           v-show="chat.id === current"
           class="chats__pane"
+          skin="conversation"
           :session="chat.id"
           :mode="chat.cli || ''"
           :command="command(chat)"
@@ -257,7 +258,8 @@ export default {
       align-items:   stretch;
       gap:           2px;
       padding:       0 12px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-surface);
       overflow-x:    auto;
     }
 
@@ -269,7 +271,7 @@ export default {
       white-space:   nowrap;
 
       &--on {
-        border-bottom-color: var(--conv-accent);
+        border-bottom-color: var(--conv-ink);
 
         .chats__title {
           font-weight: 600;
@@ -315,7 +317,7 @@ export default {
       }
 
       &--input {
-        background: var(--warning, #f5a623);
+        background: var(--conv-orange);
         opacity:    1;
       }
 
@@ -380,8 +382,8 @@ export default {
         margin:      12px 0 0;
         padding:     8px 16px;
         border:      0;
-        background:  var(--conv-accent);
-        color:       #fff;
+        background:  var(--conv-ink);
+        color:       var(--conv-on-ink);
         font-weight: 600;
       }
     }
@@ -391,6 +393,7 @@ export default {
       flex:           1 1 auto;
       flex-direction: column;
       min-height:     0;
+      background:     var(--conv-page);
     }
 
     &__pane {
@@ -408,5 +411,57 @@ export default {
   @keyframes chats-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }
+  }
+</style>
+
+<style lang="scss">
+  // The chat's skin for Conversation mode (ChatPane's `skin` prop puts `mc-chat--skin-conversation`
+  // on its root). ChatPane's own rules are scoped - a class and an attribute - so these carry one
+  // class more to win, and they only reach a chat inside this page. Colours come from the tokens on
+  // `.conv` (ConversationMode.vue): the messages sit on the grey page as the mockup's cards do -
+  // yours in the mint of its "My tasks" panel, Claude's in white - and the send button is the ink of
+  // its primary buttons rather than the link blue.
+  .conv .mc-chat.mc-chat--skin-conversation {
+    background: var(--conv-page);
+
+    .mc-chat__msg--user {
+      background:   var(--conv-mint);
+      border-color: var(--conv-mint-line);
+    }
+
+    .mc-chat__msg--assistant {
+      background:   var(--conv-surface);
+      border-color: var(--conv-line);
+    }
+
+    .mc-chat__msg--queued {
+      background:   var(--conv-surface);
+      border-color: var(--conv-accent);
+    }
+
+    .mc-chat__who {
+      color:       var(--conv-ink);
+      font-weight: 600;
+    }
+
+    .mc-chat__box {
+      border-color:  var(--conv-line);
+      border-radius: 12px;
+      background:    var(--conv-surface);
+
+      &:focus-within {
+        border-color: var(--conv-ink);
+      }
+    }
+
+    .mc-chat__send {
+      background: var(--conv-ink);
+      color:      var(--conv-on-ink);
+
+      &:disabled {
+        background: var(--conv-subtle);
+        color:      var(--conv-meta);
+      }
+    }
   }
 </style>

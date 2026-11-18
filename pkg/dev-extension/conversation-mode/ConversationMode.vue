@@ -379,21 +379,60 @@ export default {
     min-height:  0;
     line-height: 1.4;
   }
-  // The mockup's greens. `ink` is the dark pine its primary buttons use; in Rancher's dark theme
-  // that would vanish, so there it is the brighter green with dark text on it.
+  // The mockup's palette, sampled from documentation/conversation-mode/dashboard-mockup.png in
+  // the interrupt-duty repo: pine ink for headings and primary actions, a warm grey page with white
+  // cards, a green accent, and the status pairs (review, question, approval, blocked) as it draws
+  // them. Light only, like the mockup, whatever Rancher's theme is.
   .conv {
-    --conv-accent:      #30ba78;
-    --conv-accent-text: #1a7a4c;
-    --conv-ink:         #0c322c;
-    --conv-on-ink:      #ffffff;
-    --conv-warn:        #c2410c;
+    --conv-ink:          #152b27;
+    --conv-on-ink:       #ffffff;
+    --conv-page:         #f3f3f2;
+    --conv-surface:      #ffffff;
+    --conv-subtle:       #edf0ee;
+    --conv-line:         #e6e8e6;
+    --conv-text:         #152b27;
+    --conv-muted:        #5c6560;
+    --conv-meta:         #8c9299;
+    --conv-accent:       #4cae6b;
+    --conv-mint:         #e8f5ee;
+    --conv-mint-line:    #d4e8db;
+    --conv-orange:       #ee7a3b;
+    --conv-orange-text:  #9f461d;
+    --conv-link:         #3447ff;
+    --conv-review-bg:    #d7defd;
+    --conv-review:       #2634c5;
+    --conv-question-bg:  #fbe7d8;
+    --conv-question:     #853913;
+    --conv-ok-bg:        #dcf4e6;
+    --conv-ok:           #245838;
+    --conv-blocked-bg:   #f7dfe1;
+    --conv-blocked:      #8d2428;
 
+    // Rancher's theme variables, re-pointed for everything inside this page - the chat (ChatPane)
+    // reads these, so it takes the palette without a line of its own changing.
+    --body-bg:      var(--conv-surface);
+    --body-text:    var(--conv-text);
+    --muted:        var(--conv-muted);
+    --border:       var(--conv-line);
+    --link:         var(--conv-link);
+    --link-text:    #ffffff;
+    --primary:      var(--conv-ink);
+    --primary-text: var(--conv-on-ink);
+    --success:      var(--conv-accent);
+    --warning:      var(--conv-orange);
+    --error:        var(--conv-blocked);
+    --box-bg:       var(--conv-surface);
+    --input-bg:     var(--conv-surface);
+    --input-text:   var(--conv-text);
+    --input-border: var(--conv-line);
+
+    color-scheme:   light;
     display:        flex;
     flex-direction: column;
     height:         100vh;
     min-height:     0;
-    background:     var(--body-bg);
-    color:          var(--body-text);
+    background:     var(--conv-page);
+    color:          var(--conv-text);
 
     &__top {
       display:       flex;
@@ -401,7 +440,8 @@ export default {
       align-items:   center;
       gap:           16px;
       padding:       10px 16px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-surface);
     }
 
     &__brand {
@@ -419,7 +459,7 @@ export default {
       height:          26px;
       border-radius:   7px;
       background:      var(--conv-accent);
-      color:           #fff;
+      color:           var(--conv-ink);
     }
 
     &__views,
@@ -443,7 +483,7 @@ export default {
       text-decoration: none;
 
       &:hover {
-        background: rgba(127, 127, 127, 0.12);
+        background: var(--conv-subtle);
       }
     }
 
@@ -455,7 +495,7 @@ export default {
     }
 
     &__mode {
-      color:     var(--muted, #999);
+      color:     var(--conv-muted);
       font-size: 12px;
     }
 
@@ -463,13 +503,14 @@ export default {
       min-width:     18px;
       padding:       0 5px;
       border-radius: 9px;
-      background:    rgba(127, 127, 127, 0.2);
+      background:    var(--conv-subtle);
+      color:         var(--conv-muted);
       font-size:     11px;
       text-align:    center;
 
       &--warn {
-        background: var(--warning, #f5a623);
-        color:      #1d1d1d;
+        background: var(--conv-orange);
+        color:      #ffffff;
       }
     }
 
@@ -495,8 +536,8 @@ export default {
       margin:        8px 16px 0;
       padding:       8px 12px;
       border-radius: 6px;
-      background:    rgba(214, 69, 69, 0.12);
-      color:         var(--error, #d64545);
+      background:    var(--conv-blocked-bg);
+      color:         var(--conv-blocked);
       font-size:     13px;
     }
 
@@ -509,10 +550,4 @@ export default {
     }
   }
 
-  :global(.theme-dark) .conv {
-    --conv-ink:         #30ba78;
-    --conv-on-ink:      #0c1a16;
-    --conv-accent-text: #5fd39b;
-    --conv-warn:        #fb923c;
-  }
 </style>
