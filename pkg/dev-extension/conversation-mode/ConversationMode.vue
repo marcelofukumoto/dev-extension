@@ -509,16 +509,19 @@ export default {
     },
 
     /**
-     * Take chats about nothing off "Your agent team at work": marked cleared in the links, so the
-     * rail files them under Done. The chats themselves stay; closing one is the rail's ×.
+     * Archive chats, or bring them back: marked in the links, so they leave the dashboard's lists and
+     * the rail files them under Done. The chats themselves stay, transcript and all - ending one is
+     * the tab's ×. `cleared` is what Clear wrote before this, and goes with an unarchive.
      */
-    async clearChats(ids = []) {
+    async archiveChats({ ids = [], archived = true } = {}) {
       this.links = await updateLinks((links) => {
         for (const id of ids) {
-          links[id] = { ...(links[id] || {}), cleared: true };
+          const { cleared, ...rest } = links[id] || {};
+
+          links[id] = { ...rest, archived };
         }
       }).catch((e) => {
-        this.error = `The chat could not be cleared: ${ e?.message || e }`;
+        this.error = `The chat could not be ${ archived ? 'archived' : 'brought back' }: ${ e?.message || e }`;
 
         return this.links;
       });
@@ -684,7 +687,7 @@ export default {
       @start-chat="createChat"
       @new-chat="createChat()"
       @reload="refreshWork('refresh button')"
-      @clear-chat="clearChats"
+      @archive="archiveChats"
       @view-chats="go('chat', current)"
     />
     <ConversationBrowser
@@ -713,6 +716,7 @@ export default {
       @create="(p) => createChat(p?.subject || null, !!p?.quiet)"
       @rename="renameChat"
       @close="closeChat"
+      @archive="archiveChats"
     />
   </div>
 </template>

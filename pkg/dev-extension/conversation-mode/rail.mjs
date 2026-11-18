@@ -15,7 +15,7 @@ export const SECTIONS = [
   { id: 'developer', label: 'Developer' },
   { id: 'reviewer', label: 'Reviewer' },
   { id: 'other', label: 'Other' },
-  // What is over: a pull request merged or closed, an issue no longer yours, a chat cleared by hand.
+  // What is over: a pull request merged or closed, an issue no longer yours, chats archived by hand.
   { id: 'done', label: 'Done' },
 ];
 
@@ -145,17 +145,19 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}) {
   }
   const all = [...items.values()].map(({ found, ...item }) => {
     const urgency = Math.max(0, ...item.chatIds.map((id) => URGENCY[activity[id] || 'none']));
-    // Development and review are over when GitHub no longer lists the subject as open and yours;
-    // a chat about nothing is over when it is cleared by hand.
-    const finished = item.subject ? loaded && !found : item.chatIds.every((id) => links[id]?.cleared);
+    // Over by hand - every chat of it archived (`cleared` is what Clear wrote before Archive) - or,
+    // for development and review, when GitHub no longer lists the subject as open and yours.
+    const archived = item.chatIds.every((id) => isArchived(links[id]));
+    const finished = archived || (!!item.subject && loaded && !found);
 
     return {
       ...item,
       finished,
+      archived,
       section: finished ? 'done' : item.section,
       role:    item.section,
       activity: Object.keys(URGENCY).find((k) => URGENCY[k] === urgency) || 'none',
-      status:   statusOf(item.section, item.subject, found, item.chatIds.length > 0),
+      status:   archived ? { text: 'Archived', tone: '', stage: statusOf(item.section, item.subject, found).stage } : statusOf(item.section, item.subject, found, item.chatIds.length > 0),
       updated:  Date.parse(found?.item?.updatedAt || '') || 0,
     };
   });
@@ -165,6 +167,11 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}) {
     items: all.filter((i) => i.section === s.id)
       .sort((a, b) => (URGENCY[b.activity] - URGENCY[a.activity]) || (b.updated - a.updated) || a.title.localeCompare(b.title)),
   }));
+}
+
+/** Whether a chat was archived by hand (`cleared` is the older name of the same mark). */
+export function isArchived(link) {
+  return !!(link?.archived || link?.cleared);
 }
 
 /** Items whose title, reference or status mention every word of the query. */

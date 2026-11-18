@@ -9,7 +9,7 @@ const FAILED_RUN = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRE
 const FAILED_STATUS = new Set(['FAILURE', 'ERROR']);
 
 const PR_FIELDS = `
-  number title url isDraft updatedAt reviewDecision
+  number title url isDraft updatedAt reviewDecision mergeable mergeStateStatus
   author { login }
   repository { nameWithOwner }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 60) { nodes {
@@ -108,6 +108,10 @@ export function shapePr(node, login, reviewRequested = false) {
     reviewedAt,
     reviewRequested,
     changesBy,
+    // What stands between it and a merge, as GitHub sees it: CLEAN, BLOCKED (a branch rule), BEHIND,
+    // DIRTY (conflicts), UNSTABLE (a non-required check fails), UNKNOWN (not worked out yet).
+    mergeable:  node.mergeable || '',
+    mergeState: node.mergeStateStatus || '',
   };
 }
 

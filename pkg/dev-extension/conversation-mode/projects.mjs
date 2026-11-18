@@ -148,6 +148,37 @@ export function blockedReason(pr) {
   return parts.join(' · ');
 }
 
+/**
+ * Why an approved pull request of yours is not merged yet, from GitHub's merge state: conflicts,
+ * behind its base, a branch rule (another approval, a code owner, a required check), checks still
+ * running - or nothing, and it is somebody's to merge. Plain "Approved" while GitHub has not worked
+ * it out (UNKNOWN) or the answer does not carry it (the page's own myWork()).
+ */
+export function readyReason(pr) {
+  const state = pr.mergeState || '';
+
+  if (state === 'DIRTY' || pr.mergeable === 'CONFLICTING') {
+    return 'Approved, but it has merge conflicts';
+  }
+  if (checksState(pr) === 'pending') {
+    return 'Approved, checks still running';
+  }
+  if (state === 'BEHIND') {
+    return 'Approved, but its branch is behind the base';
+  }
+  if (state === 'BLOCKED') {
+    return pr.reviewDecision === 'REVIEW_REQUIRED' ? 'Approved, but it needs another approval' : 'Approved, but a branch rule still blocks it (a required reviewer or check)';
+  }
+  if (state === 'UNSTABLE') {
+    return 'Approved, ready to merge, though a non-required check fails';
+  }
+  if (state === 'CLEAN' || state === 'HAS_HOOKS') {
+    return 'Approved and ready to merge';
+  }
+
+  return 'Approved';
+}
+
 /** How much each kind of row matters, most first: the order "Needs your attention" is in. */
 const RANK = {
   question: 0, blocked: 1, review: 2, rereview: 3, ready: 4
@@ -191,7 +222,7 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
       });
     } else if (review === 'approved') {
       rows.push({
-        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: checks === 'pending' ? 'Approved, checks running' : 'Approved',
+        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: readyReason(pr),
       });
     }
   }

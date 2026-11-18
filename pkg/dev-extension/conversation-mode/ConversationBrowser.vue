@@ -119,6 +119,34 @@ export default {
     filtering() {
       return Object.values(this.filters).some(Boolean);
     },
+
+    /** The filters, as rows of chips like the tabs above them: `{ id, label, options: [{ v, t }] }`. */
+    groups() {
+      const any = (t) => ({ v: '', t });
+      const inTab = this.lists[this.tab];
+      const out = [
+        { id: 'product', label: 'Product', options: [any('All'), ...PROJECTS.map((p) => ({ v: p.id, t: p.name }))] },
+        {
+          id:      'repo',
+          label:   'Repository',
+          options: [any('All'), ...this.repos.map((r) => ({ v: r, t: `${ r.split('/').pop() } ${ inTab.filter((x) => x.repo === r).length }`, title: r }))],
+        },
+      ];
+
+      if (this.isIssues) {
+        out.push({ id: 'milestone', label: 'Milestone', options: [any('Any'), { v: '-', t: 'None' }, ...this.milestones.map((m) => ({ v: m, t: m }))] });
+      } else {
+        out.push({
+          id: 'checks', label: 'Checks', options: [any('Any'), { v: 'failing', t: 'Failing' }, { v: 'pending', t: 'Running' }, { v: 'passing', t: 'Passing' }, { v: 'none', t: 'None' }]
+        });
+        out.push({
+          id: 'review', label: 'Review', options: [any('Any'), { v: 'changes', t: 'Changes requested' }, { v: 'approved', t: 'Approved' }, { v: 'waiting', t: 'Pending' }, { v: 'draft', t: 'Draft' }]
+        });
+      }
+      out.push({ id: 'chat', label: 'Chat', options: [any('Any'), { v: 'with', t: 'Has a chat' }, { v: 'without', t: 'No chat yet' }] });
+
+      return out;
+    },
   },
 
   watch: {
@@ -233,123 +261,45 @@ export default {
         aria-label="Search"
         data-testid="browser-search"
       >
-      <select
-        v-model="filters.product"
-        aria-label="Product"
+      <div
+        v-for="g in groups"
+        :key="g.id"
+        class="br__group"
+        role="group"
+        :aria-label="g.label"
       >
-        <option value="">
-          All products
-        </option>
-        <option
-          v-for="p in PROJECTS"
-          :key="p.id"
-          :value="p.id"
+        <span class="br__group-label">{{ g.label }}</span>
+        <button
+          v-for="o in g.options"
+          :key="o.v"
+          type="button"
+          class="br__chip"
+          :class="{ 'br__chip--on': filters[g.id] === o.v }"
+          :aria-pressed="filters[g.id] === o.v ? 'true' : 'false'"
+          :title="o.title || ''"
+          :data-testid="`browser-${ g.id }-${ o.v || 'any' }`"
+          @click="filters[g.id] = o.v"
         >
-          {{ p.name }}
-        </option>
-      </select>
-      <select
-        v-model="filters.repo"
-        aria-label="Repository"
-      >
-        <option value="">
-          All repositories
-        </option>
-        <option
-          v-for="r in repos"
-          :key="r"
-          :value="r"
-        >
-          {{ r }}
-        </option>
-      </select>
-      <template v-if="!isIssues">
-        <select
-          v-model="filters.checks"
-          aria-label="Checks"
-          data-testid="browser-checks"
-        >
-          <option value="">
-            Any checks
-          </option>
-          <option value="failing">
-            Failing
-          </option>
-          <option value="pending">
-            Running
-          </option>
-          <option value="passing">
-            Passing
-          </option>
-          <option value="none">
-            No checks
-          </option>
-        </select>
-        <select
-          v-model="filters.review"
-          aria-label="Review"
-        >
-          <option value="">
-            Any review
-          </option>
-          <option value="changes">
-            Changes requested
-          </option>
-          <option value="approved">
-            Approved
-          </option>
-          <option value="waiting">
-            Review pending
-          </option>
-          <option value="draft">
-            Draft
-          </option>
-        </select>
-      </template>
-      <select
-        v-else
-        v-model="filters.milestone"
-        aria-label="Milestone"
-      >
-        <option value="">
-          Any milestone
-        </option>
-        <option value="-">
-          No milestone
-        </option>
-        <option
-          v-for="m in milestones"
-          :key="m"
-          :value="m"
-        >
-          {{ m }}
-        </option>
-      </select>
-      <select
-        v-model="filters.chat"
-        aria-label="Chat"
-      >
-        <option value="">
-          With or without a chat
-        </option>
-        <option value="with">
-          Has a chat
-        </option>
-        <option value="without">
-          No chat yet
-        </option>
-      </select>
-      <select
-        v-model="sort"
+          {{ o.t }}
+        </button>
+      </div>
+      <div
+        class="br__group"
+        role="group"
         aria-label="Sort"
       >
-        <option value="updated">
-          Recently updated
-        </option>
-        <option value="oldest">
-          Least recently updated
-        </option>
-      </select>
+        <span class="br__group-label">Sort</span>
+        <button
+          v-for="o in [{ v: 'updated', t: 'Recently updated' }, { v: 'oldest', t: 'Least recently updated' }]"
+          :key="o.v"
+          type="button"
+          class="br__chip"
+          :class="{ 'br__chip--on': sort === o.v }"
+          @click="sort = o.v"
+        >
+          {{ o.t }}
+        </button>
+      </div>
       <span class="br__result">
         {{ filtered.length }} of {{ count(tab) }}
         <button
@@ -533,30 +483,58 @@ export default {
     }
 
     &__filters {
-      display:       flex;
-      flex-wrap:     wrap;
-      align-items:   center;
-      gap:           8px;
-      margin-bottom: 12px;
-
-      select,
-      input {
-        height:        32px;
-        padding:       0 10px;
-        border:        1px solid var(--conv-line);
-        border-radius: 8px;
-        background:    var(--conv-surface);
-        color:         var(--conv-text);
-        font-size:     13px;
-      }
+      display:        flex;
+      flex-direction: column;
+      gap:            8px;
+      margin-bottom:  12px;
     }
 
     &__search {
-      flex: 1 1 260px;
+      height:        34px;
+      padding:       0 12px;
+      border:        1px solid var(--conv-line);
+      border-radius: 8px;
+      background:    var(--conv-surface);
+      color:         var(--conv-text);
+      font-size:     13px;
+    }
+
+    &__group {
+      display:     flex;
+      flex-wrap:   wrap;
+      align-items: center;
+      gap:         6px;
+    }
+
+    &__group-label {
+      flex:           0 0 90px;
+      color:          var(--conv-meta);
+      font-size:      11px;
+      font-weight:    600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    &__chip {
+      padding:       3px 10px;
+      border:        1px solid var(--conv-line);
+      border-radius: 14px;
+      background:    var(--conv-surface);
+      color:         var(--conv-text);
+      cursor:        pointer;
+      font-size:     12px;
+
+      &:hover { border-color: var(--conv-ink); }
+
+      &--on {
+        border-color: var(--conv-ink);
+        background:   var(--conv-ink);
+        color:        var(--conv-on-ink);
+      }
     }
 
     &__result {
-      margin-left: auto;
+      align-self: flex-end;
       color:       var(--conv-muted);
       font-size:   12px;
     }

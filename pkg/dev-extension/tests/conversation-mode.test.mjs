@@ -361,6 +361,19 @@ test('the rail: my work, my reviews, and the chats about nothing', () => {
   const cleared = railSections(chats, { ...links, 'p-lte-duty-5': { cleared: true } }, work, {});
 
   assert.deepEqual(cleared.find((s) => s.id === 'done').items.map((i) => i.title).sort(), ['What is on fire today', 'old#7'].sort());
+
+  // Archiving works for a pull request's chats too, once every chat of it is archived.
+  const one = railSections(chats, { ...links, 'p-lte-duty-1': { ...links['p-lte-duty-1'], archived: true } }, work, {});
+
+  assert.equal(one.find((s) => s.id === 'developer').items[0].ref, 'dashboard#10');
+  const both = railSections(chats, {
+    ...links, 'p-lte-duty-1': { ...links['p-lte-duty-1'], archived: true }, 'p-lte-duty-2': { ...links['p-lte-duty-2'], archived: true }
+  }, work, {});
+  const done = both.find((s) => s.id === 'done').items.find((i) => i.ref === 'dashboard#10');
+
+  assert.equal(done.archived, true);
+  assert.equal(done.status.text, 'Archived');
+  assert.equal(done.role, 'developer');
 });
 
 test('a subject\'s section: GitHub first, then what was recorded, then its kind', () => {
@@ -433,4 +446,16 @@ test('why a pull request is blocked: who asked for changes and what, which check
   assert.deepEqual(p.checks.failingNames, ['e2e-test (chrome)', 'lint']);
   assert.equal(blockedReason(p), 'Changes requested by @nwmac: "Please keep the existing masthead." · Failing: e2e-test (chrome), lint');
   assert.equal(blockedReason(pr({ number: 1, checks: { failing: 1, pending: 0, total: 3 } })), '1 check failing');
+});
+
+test('why an approved pull request is not merged yet', async() => {
+  const { readyReason } = await import('../conversation-mode/projects.mjs');
+
+  assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'DIRTY', mergeable: 'CONFLICTING' })), 'Approved, but it has merge conflicts');
+  assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' })), 'Approved, but it needs another approval');
+  assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'BLOCKED', reviewDecision: 'APPROVED' })), 'Approved, but a branch rule still blocks it (a required reviewer or check)');
+  assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'BEHIND' })), 'Approved, but its branch is behind the base');
+  assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'CLEAN' })), 'Approved and ready to merge');
+  assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'UNKNOWN' })), 'Approved');
+  assert.equal(readyReason(pr({ number: 1, approved: true, checks: { failing: 0, pending: 2, total: 5 } })), 'Approved, checks still running');
 });

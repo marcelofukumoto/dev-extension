@@ -10,7 +10,7 @@ import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
-import { railSections } from './rail.mjs';
+import { railSections, isArchived } from './rail.mjs';
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
@@ -36,7 +36,7 @@ export default {
 
   components: { AppIcon },
 
-  emits: ['open-chat', 'start-chat', 'new-chat', 'reload', 'clear-chat', 'view-chats'],
+  emits: ['open-chat', 'start-chat', 'new-chat', 'reload', 'archive', 'view-chats'],
 
   props: {
     chats:    { type: Array, default: () => [] },
@@ -57,6 +57,8 @@ export default {
       now:       Date.now(),
       filter:    'all',
       attentionAll: false,
+      /** The repositories "Needs your attention" is narrowed to: a chip's one, or a project card's. */
+      repos:     [],
     };
   },
 
@@ -87,10 +89,28 @@ export default {
       return attentionRows(this.work, this.chats, this.activity, this.links);
     },
 
+    /** The rows in the chosen repositories (all of them when none is chosen). */
+    inRepos() {
+      return this.repos.length ? this.attention.filter((r) => r.subject && this.repos.includes(r.subject.repo)) : this.attention;
+    },
+
+    /** One chip per repository with something in it, most first. */
+    repoChips() {
+      const n = {};
+
+      for (const r of this.attention) {
+        if (r.subject?.repo) {
+          n[r.subject.repo] = (n[r.subject.repo] || 0) + 1;
+        }
+      }
+
+      return Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([repo, count]) => ({ repo, count, label: repo.split('/').pop() }));
+    },
+
     filteredAttention() {
       const f = FILTERS.find((x) => x.id === this.filter);
 
-      return f?.kinds ? this.attention.filter((r) => f.kinds.includes(r.kind)) : this.attention;
+      return f?.kinds ? this.inRepos.filter((r) => f.kinds.includes(r.kind)) : this.inRepos;
     },
 
     /** The most urgent first, ATTENTION_SHOWN of them unless all were asked for. */
@@ -102,7 +122,7 @@ export default {
       const out = {};
 
       for (const f of FILTERS) {
-        out[f.id] = f.kinds ? this.attention.filter((r) => f.kinds.includes(r.kind)).length : this.attention.length;
+        out[f.id] = f.kinds ? this.inRepos.filter((r) => f.kinds.includes(r.kind)).length : this.inRepos.length;
       }
 
       return out;
@@ -129,6 +149,15 @@ export default {
      * Your agent team at work: every issue and pull request a chat is on, and the chats about
      * nothing, as the rail groups them (rail.mjs) - what is over (merged, closed, cleared) left out.
      */
+    /** The chats the Chats card lists: the archived ones are under Done in the rail. */
+    liveChats() {
+      return this.chats.filter((c) => !isArchived(this.links[c.id]));
+    },
+
+    archivedCount() {
+      return this.chats.length - this.liveChats.length;
+    },
+
     team() {
       return railSections(this.chats, this.links, this.work, this.activity)
         .filter((s) => s.id !== 'done')
@@ -240,6 +269,23 @@ export default {
       return { text: item.status.text || 'Idle', tone: item.status.tone };
     },
 
+    /** A repository chip: narrow to it, or back to all. */
+    pickRepo(repo) {
+      this.repos = this.repos.length === 1 && this.repos[0] === repo ? [] : [repo];
+    },
+
+    /** A project card: narrow "Needs your attention" to its repositories (code and issues), and go there. */
+    pickCard(card) {
+      const repos = [...new Set([card.repo, card.issues])];
+
+      this.repos = this.repos.join() === repos.join() ? [] : repos;
+      this.$refs.attention?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+
+    cardOn(card) {
+      return this.repos.length && this.repos.join() === [...new Set([card.repo, card.issues])].join();
+    },
+
     openItem(item) {
       this.$emit('open-chat', item.chatIds[0]);
     },
@@ -318,7 +364,10 @@ export default {
     </p>
 
     <div class="dash__grid">
-      <section class="dash__card dash__attention">
+      <section
+        ref="attention"
+        class="dash__card dash__attention"
+      >
         <header class="dash__card-head">
           <h2>Needs your attention</h2>
           <div
@@ -339,6 +388,33 @@ export default {
             </button>
           </div>
         </header>
+        <div
+          v-if="repoChips.length > 1"
+          class="dash__chips dash__repo-chips"
+          role="group"
+          aria-label="Repository"
+        >
+          <button
+            type="button"
+            class="dash__chip dash__chip--repo"
+            :class="{ 'dash__chip--on': !repos.length }"
+            @click="repos = []"
+          >
+            All repositories
+          </button>
+          <button
+            v-for="c in repoChips"
+            :key="c.repo"
+            type="button"
+            class="dash__chip dash__chip--repo"
+            :class="{ 'dash__chip--on': repos.includes(c.repo) }"
+            :title="c.repo"
+            :data-testid="`attention-repo-${ c.label }`"
+            @click="pickRepo(c.repo)"
+          >
+            {{ c.label }} {{ c.count }}
+          </button>
+        </div>
         <p
           v-if="!shownAttention.length"
           class="dash__none"
@@ -421,15 +497,16 @@ export default {
             </button>
           </header>
           <p
-            v-if="!chats.length"
+            v-if="!liveChats.length"
             class="dash__none"
           >
-            No chats yet.
+            {{ chats.length ? 'Every chat is archived.' : 'No chats yet.' }}
           </p>
           <ul class="dash__chatlist">
             <li
-              v-for="chat in chats"
+              v-for="chat in liveChats"
               :key="chat.id"
+              class="dash__chat-row"
             >
               <button
                 type="button"
@@ -446,8 +523,28 @@ export default {
                   <template v-if="subjectFor(chat.id) && !chat.title.startsWith(subjectFor(chat.id))">{{ subjectFor(chat.id) }} · </template>{{ stateLabel(chat.id) }}
                 </span>
               </button>
+              <button
+                type="button"
+                class="dash__chat-archive"
+                :aria-label="`Archive ${ chat.title }`"
+                title="Archive: off the dashboard, under Done in Chats"
+                @click="$emit('archive', { ids: [chat.id], archived: true })"
+              >
+                <AppIcon
+                  name="minus"
+                  :size="12"
+                />
+              </button>
             </li>
           </ul>
+          <button
+            v-if="archivedCount"
+            type="button"
+            class="dash__link dash__more"
+            @click="$emit('view-chats')"
+          >
+            {{ archivedCount }} archived - under Done in Chats
+          </button>
         </section>
 
         <section
@@ -556,13 +653,12 @@ export default {
               </td>
               <td class="dash__td-action">
                 <button
-                  v-if="item.section === 'other'"
                   type="button"
                   class="dash__btn"
-                  title="Take it off this list; the chat stays in Chats"
-                  @click.stop="$emit('clear-chat', item.chatIds)"
+                  title="Archive: off this list, under Done in Chats; the chats stay"
+                  @click.stop="$emit('archive', { ids: item.chatIds, archived: true })"
                 >
-                  Clear
+                  Archive
                 </button>
               </td>
             </tr>
@@ -586,7 +682,15 @@ export default {
           v-for="c in cards"
           :key="c.id"
           class="dash__proj"
-          :class="{ 'dash__proj--needs': c.needYou }"
+          :class="{ 'dash__proj--needs': c.needYou, 'dash__proj--on': cardOn(c) }"
+          role="button"
+          tabindex="0"
+          :aria-pressed="cardOn(c) ? 'true' : 'false'"
+          :title="`Show what needs you in ${ c.name }`"
+          :data-testid="`project-${ c.id }`"
+          @click="pickCard(c)"
+          @keydown.enter.prevent="pickCard(c)"
+          @keydown.space.prevent="pickCard(c)"
         >
           <header class="dash__proj-head">
             <span class="dash__proj-avatar">{{ c.initials }}</span>
@@ -596,6 +700,7 @@ export default {
                 :href="`https://github.com/${ c.repo }`"
                 target="_blank"
                 rel="noopener noreferrer"
+                @click.stop
               >{{ c.name }}</a>
               <span class="dash__muted">{{ c.kind }}</span>
             </span>
@@ -612,6 +717,7 @@ export default {
                 :href="c.release.url"
                 target="_blank"
                 rel="noopener noreferrer"
+                @click.stop
               >{{ c.release.title }}</a>
               <span v-else>—</span>
             </span>
@@ -774,6 +880,41 @@ export default {
       display:   flex;
       flex-wrap: wrap;
       gap:       6px;
+    }
+
+    &__repo-chips {
+      margin: 0 0 6px;
+    }
+
+    &__chip--repo {
+      font-size: 11px;
+    }
+
+    &__chat-row {
+      position: relative;
+
+      &:hover .dash__chat-archive { opacity: 1; }
+    }
+
+    &__chat-archive {
+      position:      absolute;
+      top:           50%;
+      right:         -8px;
+      display:       inline-flex;
+      align-items:   center;
+      justify-content: center;
+      width:         22px;
+      height:        22px;
+      border:        1px solid var(--conv-line);
+      border-radius: 50%;
+      background:    var(--conv-surface);
+      color:         var(--conv-muted);
+      cursor:        pointer;
+      opacity:       0;
+      transform:     translateY(-50%);
+
+      &:focus-visible { opacity: 1; }
+      &:hover { color: var(--conv-ink); border-color: var(--conv-ink); }
     }
 
     &__chip {
@@ -1049,7 +1190,9 @@ export default {
       margin-top: 8px;
     }
 
+    // Rancher's global header rule makes every <header> a row; this one is a title over a line.
     &__projects-head {
+      display:       block;
       margin-bottom: 12px;
 
       h2 {
@@ -1075,6 +1218,14 @@ export default {
       background:     var(--conv-surface);
 
       &--needs { border: 2px solid var(--conv-orange); }
+      &--on { box-shadow: 0 0 0 3px var(--conv-ink); }
+
+      cursor:     pointer;
+      transition: box-shadow 0.12s ease;
+
+      &:hover,
+      &:focus-visible { box-shadow: 0 0 0 3px var(--conv-mint-line); outline: none; }
+      &--on:hover { box-shadow: 0 0 0 3px var(--conv-ink); }
     }
 
     &__proj-head {

@@ -39,7 +39,7 @@ export default {
 
   components: { StudioTerminal, StageSteps, AppIcon },
 
-  emits: ['select', 'create', 'rename', 'close'],
+  emits: ['select', 'create', 'rename', 'close', 'archive'],
 
   props: {
     chats:     { type: Array, default: () => [] },
@@ -315,26 +315,40 @@ export default {
 
     <div class="chats__main">
       <header
-        v-if="currentItem && currentItem.subject"
+        v-if="currentItem"
         class="chats__head"
       >
         <div class="chats__head-text">
           <a
+            v-if="currentItem.url"
             class="chats__head-title"
             :href="currentItem.url"
             target="_blank"
             rel="noopener noreferrer"
           >{{ currentItem.title }}</a>
+          <span
+            v-else
+            class="chats__head-title"
+          >{{ currentItem.title }}</span>
           <span class="chats__head-meta">
-            {{ currentItem.ref }}<template v-if="currentItem.status.text"> · <span :class="`chats__status chats__status--${ currentItem.status.tone || 'plain' }`">{{ currentItem.status.text }}</span></template>
+            {{ currentItem.ref || 'Chat' }}<template v-if="currentItem.status.text"> · <span :class="`chats__status chats__status--${ currentItem.status.tone || 'plain' }`">{{ currentItem.status.text }}</span></template>
           </span>
         </div>
         <StageSteps
-          v-if="steps.length"
+          v-if="steps.length && !currentItem.archived"
           class="chats__stages"
           :steps="steps"
           :current-index="currentItem.status.stage"
         />
+        <button
+          type="button"
+          class="chats__archive"
+          :title="currentItem.archived ? 'Bring it back to the dashboard and the rail' : 'Take it off the dashboard and file it under Done; the chats stay'"
+          data-testid="chat-archive"
+          @click="$emit('archive', { ids: currentItem.chatIds, archived: !currentItem.archived })"
+        >
+          {{ currentItem.archived ? 'Unarchive' : 'Archive' }}
+        </button>
       </header>
 
       <div
@@ -651,6 +665,18 @@ export default {
       padding:       12px 18px;
       border-bottom: 1px solid var(--conv-line);
       background:    var(--conv-surface);
+    }
+
+    &__archive {
+      padding:       5px 12px;
+      border:        1px solid var(--conv-line);
+      border-radius: 6px;
+      background:    var(--conv-surface);
+      color:         var(--conv-text);
+      cursor:        pointer;
+      font-size:     12px;
+
+      &:hover { border-color: var(--conv-ink); }
     }
 
     &__head-text {
