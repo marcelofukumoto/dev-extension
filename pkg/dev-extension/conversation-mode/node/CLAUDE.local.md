@@ -6,6 +6,11 @@ memory as on Marcelo's Mac, in a different machine. Read this before trusting a 
 
 - **The repo is at `/workspaces/.conversation/rancher-interrupt-duty`**. Memory and older notes say
   `/Users/mfukumoto/Projects/rancher-interrupt-duty`: that is the Mac copy. Translate, do not create it.
+- **Your file tools and your commands run in two different pods, with two different `/tmp`s.**
+  Read/Write/Edit run in the agent pod; Bash runs in the `lte-duty` pod. Your scratchpad (under
+  `/tmp/claude-1000/...`) exists only for the file tools, so a file written there is "No such file" to
+  `cat`, `jq` or a script. Anything both sides need goes under `/workspaces/.conversation/tmp/` (shared,
+  yours, cleaned by hand): write it there with Write and read it from Bash, or the other way round.
 - **Commands run in the `lte-duty` workspace pod** (node:24, Debian 12) through
   `/workspaces/.conversation/bin/conv-shell`. Your file tools run in the agent pod; both see
   `/workspaces/...` at the same path.
