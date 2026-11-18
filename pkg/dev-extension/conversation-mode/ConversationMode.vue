@@ -1,8 +1,8 @@
 <script>
 // Conversation mode: a dashboard of what is going on, and the chats that act on it.
 //
-// Two views under one route, `/dev/c/_/conversation/:view?` - the dashboard (no view) and the
-// chats (`chat`, with the chat as the hash). This page owns what both of them read: the chats,
+// Two views on one path, `/dev/c/_/conversation` - the dashboard, and the chats with `?view=chat`
+// and the chat as the hash. Never a path segment: see routes.ts. This page owns what both of them read: the chats,
 // what each agent is doing, and which chat is about which pull request (links.ts). The chats view
 // is mounted the first time it is shown and then kept, so its panes - and their sockets - live
 // through a trip to the dashboard and back.
@@ -60,7 +60,7 @@ export default {
 
   computed: {
     view() {
-      return this.$route.params.view === 'chat' ? 'chat' : 'dashboard';
+      return this.$route.query.view === 'chat' ? 'chat' : 'dashboard';
     },
 
     current() {
@@ -118,10 +118,9 @@ export default {
     go(view, id = '', replace = false) {
       const to = {
         name:   CONVERSATION_ROUTE,
-        params: {
-          product: DEV_PRODUCT, cluster: BLANK_CLUSTER, ...(view === 'chat' ? { view: 'chat' } : {})
-        },
-        hash: id ? `#${ id }` : '',
+        params: { product: DEV_PRODUCT, cluster: BLANK_CLUSTER },
+        query:  view === 'chat' ? { view: 'chat' } : {},
+        hash:   id ? `#${ id }` : '',
       };
 
       (replace ? this.$router.replace(to) : this.$router.push(to)).catch(() => {});
@@ -130,8 +129,14 @@ export default {
     async loadChats() {
       this.loadingChats = true;
       try {
-        const list = await listConversations(CONVERSATION_WORKSPACE);
+        let list = await listConversations(CONVERSATION_WORKSPACE);
+        const wanted = (this.$route.hash || '').replace(/^#/, '');
 
+        // A link to a chat made a moment ago can arrive before the registry lists it: ask once more.
+        if (wanted && !list.some((c) => c.id === wanted)) {
+          await new Promise((done) => setTimeout(done, 1500));
+          list = await listConversations(CONVERSATION_WORKSPACE);
+        }
         this.chats = list.map((c) => ({ id: c.id, title: c.title, cli: c.cli || '' }));
       } catch (e) {
         this.error = `The chats could not be listed: ${ e?.message || e }`;
