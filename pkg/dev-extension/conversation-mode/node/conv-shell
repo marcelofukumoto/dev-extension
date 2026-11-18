@@ -8,8 +8,9 @@
 # /workspaces/.conversation instead of being reset to the workspace's checkout; our tools are on
 # PATH; and our .env is loaded on top of the workspace's.
 #
-# The .env is the one Secret, dev-system/conversation-env (key `.env`). It is copied into the repo
-# (gitignored, mode 600) at most once a minute, so editing the Secret reaches the next command.
+# The one Secret, dev-system/conversation-env: its `.env` key is copied into the repo and each
+# `kubeconfig.<name>` key into the repo's kubeconfig/ (both gitignored, mode 600), at most once a
+# minute, so editing the Secret reaches the next command.
 #
 # gh: the workspace's own GH_TOKEN is whatever the last page that provisioned lte-duty had - the
 # local admin has none, and a test page once wrote a placeholder there - so the .env's
@@ -29,11 +30,28 @@ esac
 
 STAMP=$C/.env-synced
 if [ -z "$(find "$STAMP" -mmin -1 2>/dev/null)" ]; then
-  if kubectl -n dev-system get secret conversation-env -o jsonpath='{.data.\.env}' 2>/dev/null | base64 -d > "$REPO/.env.new" 2>/dev/null && [ -s "$REPO/.env.new" ]; then
-    chmod 600 "$REPO/.env.new" && mv "$REPO/.env.new" "$REPO/.env"
-  else
-    rm -f "$REPO/.env.new"
-  fi
+  # Every entry of the one Secret, as files: `.env` into the repo, `kubeconfig.<name>` into its
+  # gitignored kubeconfig/ (the Mac's layout, so scripts find them where they look). Each written to a
+  # temporary name, mode 600, and moved over the old one only when it decoded to something.
+  umask 077
+  kubectl -n dev-system get secret conversation-env -o go-template='{{range $k, $v := .data}}{{$k}} {{$v}}{{"\n"}}{{end}}' 2>/dev/null |
+    while read -r key value; do
+      case "$key" in
+        .env) dest="$REPO/.env" ;;
+        kubeconfig.*)
+          name=${key#kubeconfig.}
+          case "$name" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+          mkdir -p "$REPO/kubeconfig"
+          dest="$REPO/kubeconfig/$name"
+          ;;
+        *) continue ;;
+      esac
+      if printf '%s' "$value" | base64 -d > "$dest.new" 2>/dev/null && [ -s "$dest.new" ]; then
+        mv "$dest.new" "$dest"
+      else
+        rm -f "$dest.new"
+      fi
+    done
   touch "$STAMP"
 fi
 
@@ -43,7 +61,10 @@ case "$DIR" in
   *) DIR=$REPO ;;
 esac
 
+# As root for one moment first: on a container's first command, start conv-root-setup (Chromium's
+# system libraries, gone with every container restart) in the background; then drop to the pane user.
 exec kubectl exec -i -n "$NS" "deploy/$NS" -c workspace -- \
+  /bin/sh -c '[ -f /tmp/.conv-root-setup-done ] || setsid /workspaces/.conversation/bin/conv-root-setup >/tmp/.conv-root-setup.log 2>&1 </dev/null & exec "$0" "$@"' \
   setpriv --reuid=1000 --regid=1000 --init-groups \
   /usr/bin/env HOME="$C/.home" WSD="$WS" C="$C" REPO="$REPO" DIR="$DIR" \
-  /bin/bash -lc 'cd "$DIR" 2>/dev/null || cd "$REPO" || exit 1; PATH="$C/bin:$WSD/bin:$PATH"; set -a; [ -f "$WSD/.env" ] && . "$WSD/.env"; [ -f "$REPO/.env" ] && . "$REPO/.env"; set +a; [ -z "$GH_TOKEN_DEV_EXTENSION" ] || export GH_TOKEN="$GH_TOKEN_DEV_EXTENSION" GITHUB_TOKEN="$GH_TOKEN_DEV_EXTENSION"; eval "$1"' bash "$1"
+  /bin/bash -lc 'cd "$DIR" 2>/dev/null || cd "$REPO" || exit 1; PATH="$C/bin:$C/npm-global/bin:$WSD/bin:$PATH"; export NPM_CONFIG_PREFIX="$C/npm-global" NODE_PATH="$C/npm-global/lib/node_modules"; set -a; [ -f "$WSD/.env" ] && . "$WSD/.env"; [ -f "$REPO/.env" ] && . "$REPO/.env"; set +a; [ -z "$GH_TOKEN_DEV_EXTENSION" ] || export GH_TOKEN="$GH_TOKEN_DEV_EXTENSION" GITHUB_TOKEN="$GH_TOKEN_DEV_EXTENSION"; eval "$1"' bash "$1"

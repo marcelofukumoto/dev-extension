@@ -1,0 +1,22 @@
+#!/bin/sh
+# Conversation mode: what the lte-duty container needs as root, put back after every container start
+# (FORK.md, conversation-mode/node). The container's own filesystem is new each time the pod starts -
+# only /workspaces survives - so apt packages go with it: here, the system libraries Chromium needs
+# for Playwright (the browsers themselves are on the shared disk, /workspaces/.shared/playwright).
+#
+# conv-shell starts this as root, in the background, on the first command after the container
+# starts; a lock keeps it to one at a time and a marker in /tmp to once per container. By hand:
+#   kubectl -n dev-lte-duty exec deploy/dev-lte-duty -c workspace -- /workspaces/.conversation/bin/conv-root-setup
+set -e
+MARK=/tmp/.conv-root-setup-done
+[ -f "$MARK" ] && exit 0
+exec 9>/tmp/.conv-root-setup.lock
+flock -n 9 || exit 0
+# `playwright install-deps --dry-run chromium` for @playwright/cli 0.1.18 (Playwright 1.63) on Debian 12.
+PKGS="at-spi2-common fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libavahi-client3 libavahi-common-data libavahi-common3 libcups2 libfontenc1 libnspr4 libnss3 libunwind8 libxaw7 libxcomposite1 libxdamage1 libxfont2 libxkbfile1 libxmu6 libxpm4 x11-xkb-utils xfonts-encodings xfonts-scalable xfonts-utils xserver-common xvfb"
+export DEBIAN_FRONTEND=noninteractive
+apt-get -o DPkg::Lock::Timeout=300 update -qq
+# shellcheck disable=SC2086
+apt-get -o DPkg::Lock::Timeout=300 install -y -qq --no-install-recommends $PKGS
+touch "$MARK"
+echo "conv-root-setup: done"

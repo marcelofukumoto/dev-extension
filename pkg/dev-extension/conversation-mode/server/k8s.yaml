@@ -102,6 +102,10 @@ spec:
         - name: env
           secret:
             secretName: conversation-env
+            # Only the .env (GitHub's token): the kubeconfigs in the same Secret are the chats', not this server's.
+            items:
+              - key: .env
+                path: .env
         - name: cache
           hostPath:
             path: /var/lib/rancher/dev-workspaces/.conversation/cache
