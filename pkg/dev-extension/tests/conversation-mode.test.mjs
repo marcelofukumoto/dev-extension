@@ -578,3 +578,79 @@ test('an archived chat asks nothing in Needs your attention', () => {
 
   assert.deepEqual(rows.map((r) => r.chatId), ['p-1']);
 });
+
+// ── Nothing to do (nothing-to-do.mjs) ──────────────────────────────────────────────────────────
+
+test('nothing to do: a mark holds until anything happens to the pull request', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const pr = {
+    repo: 'rancher/rancher-ai-ui', number: 256, title: 'e2e', url: 'u', author: 'torchiaf', reviewRequested: true, draft: true, updatedAt: '2026-08-07T10:00:00Z',
+  };
+  const row = () => attentionRows({ reviewing: [pr] })[0];
+  const doc = N.mark(N.emptyMarks(), row(), 'Draft - not ready for review yet', '2026-11-18T18:00:00Z');
+
+  assert.equal(N.isQuiet(row(), doc), true);
+  // A comment moves updatedAt; out of draft changes the stamp too; a new kind of row is a new row.
+  pr.updatedAt = '2026-11-18T19:00:00Z';
+  assert.equal(N.isQuiet(row(), doc), false);
+  pr.updatedAt = '2026-08-07T10:00:00Z';
+  pr.draft = false;
+  assert.equal(N.isQuiet(row(), doc), false);
+  pr.draft = true;
+  pr.checks = { total: 2, failing: 1, failingNames: ['e2e'] };
+  assert.equal(N.isQuiet(row(), doc), false);
+
+  assert.deepEqual(N.unmark(doc, row().key).marks, {});
+});
+
+test('nothing to do: a question holds until its agent does something', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const row = { kind: 'question', key: 'chat:p-1', stamp: N.questionStamp({ now: { at: '2026-11-18T10:00:00Z' } }) };
+  const doc = N.mark(N.emptyMarks(), row, 'Answered elsewhere');
+
+  assert.equal(N.isQuiet(row, doc), true);
+  assert.equal(N.isQuiet({ ...row, stamp: N.questionStamp({ now: { at: '2026-11-18T10:05:00Z' } }) }, doc), false);
+  assert.equal(N.suggestion(row, doc), null);
+});
+
+test('nothing to do: suggested for rows like ones marked before, and for a draft\'s review', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const blocked = (number, author, failing) => ({
+    kind: 'blocked', key: `rancher/dashboard#${ number }`, stamp: `s${ number }`, author, subject: { repo: 'rancher/dashboard', number }, why: `Failing: ${ failing }`,
+  });
+  const doc = N.mark(N.emptyMarks(), blocked(1, 'someone', 'Description'), 'The description check is the gate - fixed in the PR body', 'a');
+
+  assert.deepEqual(N.suggestion(blocked(2, 'other', 'Description'), doc), { reason: 'The description check is the gate - fixed in the PR body', from: 'learned' });
+  assert.equal(N.suggestion(blocked(3, 'other', 'unit-test'), doc), null);
+  assert.deepEqual(N.suggestion({ kind: 'review', key: 'k', draft: true, author: 'x', why: 'From x' }, N.emptyMarks()), { reason: N.DRAFT_REASON, from: 'draft' });
+  // What was taught beats the built-in one.
+  const taught = N.mark(N.emptyMarks(), { kind: 'review', key: 'a', draft: true, author: 'torchiaf', why: 'From torchiaf' }, 'His drafts are e2e scratch work');
+
+  assert.equal(N.suggestion({ kind: 'review', key: 'b', draft: true, author: 'torchiaf', why: 'From torchiaf' }, taught).reason, 'His drafts are e2e scratch work');
+});
+
+test('nothing to do: the reasons offered are the most used first, then the starters', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const doc = N.emptyMarks();
+
+  N.mark(doc, { kind: 'review', key: 'a' }, 'Not mine to do', '2026-11-18T10:00:00Z');
+  N.mark(doc, { kind: 'review', key: 'b' }, 'Bot bump, the team takes it', '2026-11-18T10:01:00Z');
+  N.mark(doc, { kind: 'review', key: 'c' }, 'Bot bump, the team takes it', '2026-11-18T10:02:00Z');
+  // Used as often as "Not mine to do", more lately: first of the two.
+  N.mark(doc, { kind: 'review', key: 'd' }, '   ', '2026-11-18T10:03:00Z');
+
+  assert.deepEqual(N.reasonList(doc).slice(0, 4), ['Bot bump, the team takes it', 'Checked - nothing to do', 'Not mine to do', 'Draft - not ready for review yet']);
+  assert.equal(doc.marks.d.reason, 'Checked - nothing to do');
+});
+
+test('nothing to do: old marks of rows that are gone are forgotten, live ones kept', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const doc = N.emptyMarks();
+
+  N.mark(doc, { kind: 'review', key: 'gone' }, 'x', '2026-01-01T00:00:00Z');
+  N.mark(doc, { kind: 'review', key: 'live' }, 'x', '2026-01-01T00:00:00Z');
+  N.mark(doc, { kind: 'review', key: 'recent' }, 'x', '2026-11-17T00:00:00Z');
+  N.prune(doc, new Set(['live']), Date.parse('2026-11-18T00:00:00Z'));
+
+  assert.deepEqual(Object.keys(doc.marks).sort(), ['live', 'recent']);
+});

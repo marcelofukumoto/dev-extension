@@ -198,6 +198,21 @@ export function readyReason(pr) {
 }
 
 /** How much each kind of row matters, most first: the order "Needs your attention" is in. */
+/**
+ * What a pull request looks like now, for a row about it (nothing-to-do.mjs): it changes when
+ * anything happens to it - GitHub's updatedAt moves on a comment, a push, a review, a label - and
+ * with what updatedAt does not cover, the checks, the review decision, draft-ness and the row's kind.
+ */
+export function prStamp(kind, pr) {
+  return [
+    kind,
+    pr.updatedAt || '',
+    pr.reviewDecision || '',
+    pr.draft ? 'draft' : '',
+    pr.checks ? `${ pr.checks.failing || 0 }:${ (pr.checks.failingNames || []).join(',') }` : '',
+  ].join('|');
+}
+
 /** Whether a chat was archived by hand (`cleared` is the older name of the same mark). */
 export function isArchived(link) {
   return !!(link?.archived || link?.cleared);
@@ -243,11 +258,11 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
     // Changes requested and the review asked again: it waits on the reviewer - not here, unless a check fails.
     if (checks === 'failing' || (review === 'changes' && !changesAddressed(pr))) {
       rows.push({
-        kind: 'blocked', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: blockedReason(pr),
+        kind: 'blocked', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: blockedReason(pr), author: pr.author || '', stamp: prStamp('blocked', pr),
       });
     } else if (review === 'approved') {
       rows.push({
-        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: readyReason(pr),
+        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: readyReason(pr), author: pr.author || '', stamp: prStamp('ready', pr),
       });
     }
   }
@@ -256,11 +271,11 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
 
     if (pr.reviewRequested) {
       rows.push({
-        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft,
+        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('review', pr),
       });
     } else if (pushedSinceReview(pr)) {
       rows.push({
-        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`, draft: !!pr.draft,
+        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`, draft: !!pr.draft, author: pr.author || '', stamp: prStamp('rereview', pr),
       });
     }
   }

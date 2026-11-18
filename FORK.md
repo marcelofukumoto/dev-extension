@@ -45,6 +45,9 @@ Edits to upstream files, each marked with a comment naming this file:
   `/var/lib/rancher/dev-workspaces/.conversation/cache/work.json` on the node.
 - The ConfigMap `dev-system/conversation-links` (key `links.json`): which chat is about which pull
   request or issue, written by the dashboard (and by an agent with kubectl).
+- The ConfigMap `dev-system/conversation-attention` (key `marks.json`): the "Nothing to do" marks
+  of Needs your attention and why each was given (conversation-mode/nothing-to-do.mjs), created
+  by the dashboard the first time something is marked.
 
 ## Version
 

@@ -12,6 +12,13 @@ import {
 } from './projects.mjs';
 import { railSections, isArchived } from './rail.mjs';
 import { doingText } from './transcript-read.mjs';
+import {
+  emptyMarks, questionStamp, isQuiet, suggestion, reasonList, mark, unmark, prune
+} from './nothing-to-do.mjs';
+import { readMarks, updateMarks } from './marks';
+
+/** How often the "Nothing to do" marks are read again, for one made in another browser or by an agent. */
+const MARKS_POLL_MS = 60000;
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
@@ -62,6 +69,13 @@ export default {
       attentionAll: false,
       /** The repositories "Needs your attention" is narrowed to: a chip's one, or a project card's. */
       repos:     [],
+      /** "Nothing to do" (nothing-to-do.mjs): the marks, why, and what is being marked now. */
+      marksDoc:   emptyMarks(),
+      marking:    '',
+      markReason: '',
+      markSaving: false,
+      markError:  '',
+      showQuiet:  false,
     };
   },
 
@@ -69,10 +83,13 @@ export default {
     this.clock = setInterval(() => {
       this.now = Date.now();
     }, 30000);
+    this.loadMarks();
+    this.marksPoll = setInterval(() => this.loadMarks(), MARKS_POLL_MS);
   },
 
   beforeUnmount() {
     clearInterval(this.clock);
+    clearInterval(this.marksPoll);
   },
 
   computed: {
@@ -88,8 +105,41 @@ export default {
       return `${ greeting(new Date(this.now)) }${ who ? `, ${ who }` : '' }`;
     },
 
+    /** Every row, marked or not; a question's stamp is the last thing its agent did. */
+    allAttention() {
+      return attentionRows(this.work, this.chats, this.activity, this.links)
+        .map((r) => (r.kind === 'question' ? { ...r, stamp: questionStamp(this.transcripts[r.chatId]) } : r));
+    },
+
+    /** What needs you: the rows nobody marked "Nothing to do", or that changed since. */
     attention() {
-      return attentionRows(this.work, this.chats, this.activity, this.links);
+      return this.allAttention.filter((r) => !isQuiet(r, this.marksDoc));
+    },
+
+    /** Marked "Nothing to do" and nothing has happened since: out of the list, behind a link. */
+    quietRows() {
+      const rows = this.allAttention.filter((r) => isQuiet(r, this.marksDoc));
+
+      return this.repos.length ? rows.filter((r) => r.subject && this.repos.includes(r.subject.repo)) : rows;
+    },
+
+    /** Row key -> the reason to suggest marking it "Nothing to do" for. */
+    suggestions() {
+      const out = {};
+
+      for (const r of this.attention) {
+        const s = suggestion(r, this.marksDoc);
+
+        if (s) {
+          out[r.key] = s;
+        }
+      }
+
+      return out;
+    },
+
+    reasons() {
+      return reasonList(this.marksDoc);
     },
 
     /** The rows in the chosen repositories (all of them when none is chosen). */
@@ -297,6 +347,52 @@ export default {
     buildText: (b) => ({
       passing: 'Passing', failing: 'Failing', running: 'Running'
     }[b] || '—'),
+    /* ── Nothing to do ──────────────────────────────────────────────────────────────────── */
+
+    async loadMarks() {
+      try {
+        this.marksDoc = await readMarks();
+      } catch {
+        // Not readable now (a restart, a blip): the rows show as they would without marks.
+      }
+    },
+
+    openMark(row) {
+      this.marking = row.key;
+      this.markReason = this.suggestions[row.key]?.reason || '';
+      this.markError = '';
+    },
+
+    async saveMark(row, reason) {
+      if (this.markSaving) {
+        return;
+      }
+      this.markSaving = true;
+      this.markError = '';
+      const live = new Set(this.allAttention.map((r) => r.key));
+
+      try {
+        this.marksDoc = await updateMarks((doc) => prune(mark(doc, row, reason), live));
+        this.marking = '';
+      } catch (e) {
+        this.markError = e?.message || String(e);
+      } finally {
+        this.markSaving = false;
+      }
+    },
+
+    async unmarkRow(row) {
+      try {
+        this.marksDoc = await updateMarks((doc) => unmark(doc, row.key));
+      } catch (e) {
+        this.markError = e?.message || String(e);
+      }
+    },
+
+    markOf(row) {
+      return this.marksDoc.marks?.[row.key] || null;
+    },
+
     stateLabel(id) {
       return STATE_LABEL[this.activity[id] || 'none'];
     },
@@ -469,8 +565,87 @@ export default {
                 :class="`dash__doing--${ stateOf(row.chatId) }`"
                 data-testid="attention-doing"
               >{{ doing(row.chatId) }}</span>
+              <span
+                v-if="suggestions[row.key] && marking !== row.key"
+                class="dash__suggest"
+                data-testid="attention-suggest"
+              >
+                Looks like nothing to do: {{ suggestions[row.key].reason }}
+                <button
+                  type="button"
+                  class="dash__link"
+                  :disabled="markSaving"
+                  data-testid="attention-suggest-mark"
+                  @click="saveMark(row, suggestions[row.key].reason)"
+                >Mark it</button>
+              </span>
+              <div
+                v-if="marking === row.key"
+                class="dash__mark"
+                data-testid="attention-mark-editor"
+              >
+                <p class="dash__mark-help">
+                  Checked, and there is nothing to work on? It leaves this list until anything happens to it - a comment, a push, a review, a check.
+                </p>
+                <div class="dash__mark-reasons">
+                  <button
+                    v-for="r in reasons"
+                    :key="r"
+                    type="button"
+                    class="dash__chip"
+                    :class="{ 'dash__chip--on': markReason === r }"
+                    @click="markReason = r"
+                  >
+                    {{ r }}
+                  </button>
+                </div>
+                <div class="dash__mark-row">
+                  <input
+                    v-model="markReason"
+                    class="dash__mark-input"
+                    type="text"
+                    placeholder="Why? Kept, and offered next time"
+                    aria-label="Why there is nothing to do"
+                    data-testid="attention-mark-reason"
+                    @keydown.enter="saveMark(row, markReason)"
+                    @keydown.esc="marking = ''"
+                  >
+                  <button
+                    type="button"
+                    class="dash__btn dash__btn--primary"
+                    :disabled="markSaving"
+                    data-testid="attention-mark-save"
+                    @click="saveMark(row, markReason)"
+                  >
+                    {{ markSaving ? 'Saving…' : 'Nothing to do' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="dash__btn"
+                    @click="marking = ''"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p
+                  v-if="markError"
+                  class="dash__error"
+                >
+                  {{ markError }}
+                </p>
+              </div>
             </div>
             <div class="dash__row-actions">
+              <button
+                v-if="marking !== row.key"
+                type="button"
+                class="dash__btn dash__btn--quiet"
+                title="Checked - nothing to work on. It comes back when anything happens to it."
+                data-testid="attention-nothing"
+                @click="openMark(row)"
+              >
+                Nothing to do
+              </button>
               <button
                 type="button"
                 class="dash__btn"
@@ -498,6 +673,41 @@ export default {
         >
           {{ attentionAll ? 'Show the first 10' : `Show all ${ filteredAttention.length }` }}
         </button>
+        <div
+          v-if="quietRows.length"
+          class="dash__quiet"
+        >
+          <button
+            type="button"
+            class="dash__link"
+            data-testid="attention-quiet-toggle"
+            @click="showQuiet = !showQuiet"
+          >
+            {{ showQuiet ? 'Hide' : 'Show' }} {{ quietRows.length }} marked nothing to do
+          </button>
+          <ul
+            v-if="showQuiet"
+            class="dash__quiet-rows"
+          >
+            <li
+              v-for="row in quietRows"
+              :key="row.kind + row.key"
+              class="dash__quiet-row"
+              data-testid="attention-quiet-row"
+            >
+              <span class="dash__quiet-title">{{ row.title }}</span>
+              <span class="dash__muted">{{ row.subject ? refOf(row.subject) : '' }} · {{ markOf(row)?.reason }} · {{ when(markOf(row)?.at) }}</span>
+              <button
+                type="button"
+                class="dash__link"
+                data-testid="attention-unmark"
+                @click="unmarkRow(row)"
+              >
+                Back on the list
+              </button>
+            </li>
+          </ul>
+        </div>
       </section>
 
       <div class="dash__side">
@@ -1089,6 +1299,88 @@ export default {
       cursor:     pointer;
       font-size:  12px;
       padding:    0;
+
+      &:disabled { opacity: 0.6; cursor: default; }
+    }
+
+    // "Nothing to do": the quiet button, the suggestion, the editor and the marked rows.
+    &__btn--quiet {
+      border-color: transparent;
+      color:        var(--conv-muted);
+
+      &:hover { border-color: var(--border); color: var(--body-text); }
+    }
+
+    &__suggest {
+      display:   block;
+      color:     var(--conv-muted);
+      font-size: 12px;
+      font-style: italic;
+
+      .dash__link { margin-left: 6px; font-style: normal; }
+    }
+
+    &__mark {
+      display:        flex;
+      flex-direction: column;
+      gap:            8px;
+      margin-top:     8px;
+      padding:        10px 12px;
+      border:         1px solid var(--conv-line);
+      border-radius:  8px;
+      background:     var(--conv-page);
+    }
+
+    &__mark-help {
+      margin:    0;
+      color:     var(--conv-muted);
+      font-size: 12px;
+    }
+
+    &__mark-reasons {
+      display:   flex;
+      flex-wrap: wrap;
+      gap:       6px;
+    }
+
+    &__mark-row {
+      display:   flex;
+      flex-wrap: wrap;
+      gap:       8px;
+    }
+
+    &__mark-input {
+      flex:          1 1 240px;
+      min-width:     0;
+      padding:       5px 10px;
+      border:        1px solid var(--border);
+      border-radius: 6px;
+      font-size:     13px;
+    }
+
+    &__quiet {
+      margin-top: 10px;
+    }
+
+    &__quiet-rows {
+      margin:     8px 0 0;
+      padding:    0;
+      list-style: none;
+    }
+
+    &__quiet-row {
+      display:     flex;
+      flex-wrap:   wrap;
+      align-items: baseline;
+      gap:         4px 10px;
+      padding:     6px 0;
+      border-top:  1px solid var(--conv-line);
+      font-size:   12px;
+    }
+
+    &__quiet-title {
+      color:       var(--body-text);
+      font-weight: 600;
     }
 
     // The mockup's "My tasks": a mint panel of white rows.
