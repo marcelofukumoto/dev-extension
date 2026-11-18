@@ -311,3 +311,53 @@ test('the WebSocket handshake and frames, both ways', () => {
   assert.equal(readFrames(masked).frames[0].payload.toString(), 'ping!');
   assert.equal(frame(0xa, payload)[0], 0x8a);
 });
+
+// ── the rail (rail.mjs) ───────────────────────────────────────────────────────────────────────
+import { railSections, sectionOf, statusOf, filterRail } from '../conversation-mode/rail.mjs';
+
+test('the rail: my work, my reviews, and the chats about nothing', () => {
+  const work = {
+    login:     'me',
+    mine:      [pr({ number: 10, repo: 'rancher/dashboard', checks: { failing: 2, pending: 0, total: 5 } })],
+    reviewing: [pr({ number: 20, repo: 'harvester/harvester-ui-extension', reviewRequested: true })],
+    issues:    [{ key: 'rancher/dashboard#30', repo: 'rancher/dashboard', number: 30, title: 'Issue 30', milestone: 'v2.17.0', updatedAt: '2026-11-18T09:00:00Z' }],
+  };
+  const chats = [
+    { id: 'p-lte-duty-1', title: 'dashboard#10 fix' },
+    { id: 'p-lte-duty-2', title: 'dashboard#10 second look' },
+    { id: 'p-lte-duty-3', title: 'harvester-ui-extension#20 review' },
+    { id: 'p-lte-duty-4', title: 'dashboard#30 the issue' },
+    { id: 'p-lte-duty-5', title: 'What is on fire today' },
+    { id: 'p-lte-duty-6', title: 'old#7' },
+  ];
+  const links = {
+    'p-lte-duty-1': { subject: { repo: 'rancher/dashboard', number: 10, kind: 'pr', url: 'u10' } },
+    'p-lte-duty-2': { subject: { repo: 'rancher/dashboard', number: 10, kind: 'pr', url: 'u10' } },
+    'p-lte-duty-3': { subject: { repo: 'harvester/harvester-ui-extension', number: 20, kind: 'pr', url: 'u20' } },
+    'p-lte-duty-4': { subject: { repo: 'rancher/dashboard', number: 30, kind: 'issue', url: 'u30' } },
+    'p-lte-duty-6': { subject: { repo: 'rancher/old', number: 7, kind: 'pr', url: 'u7', role: 'developer' } },
+  };
+  const rail = railSections(chats, links, work, { 'p-lte-duty-2': 'input', 'p-lte-duty-5': 'working' });
+  const by = Object.fromEntries(rail.map((s) => [s.id, s.items]));
+
+  assert.deepEqual(rail.map((s) => s.id), ['developer', 'reviewer', 'other']);
+  assert.deepEqual(by.developer.map((i) => `${ i.ref }:${ i.chatIds.length }:${ i.activity }`), ['dashboard#10:2:input', 'dashboard#30:1:none', 'old#7:1:none']);
+  assert.equal(by.developer[0].status.text, '2 checks failing');
+  assert.equal(by.developer[1].status.text, 'Assigned · v2.17.0');
+  assert.equal(by.developer[2].status.text, 'Closed or merged');
+  assert.deepEqual(by.reviewer.map((i) => `${ i.ref }:${ i.status.text }:${ i.status.stage }`), ['harvester-ui-extension#20:Your review:0']);
+  assert.deepEqual(by.other.map((i) => `${ i.title }:${ i.activity }`), ['What is on fire today:working']);
+  assert.equal(filterRail(rail, 'review')[1].items.length, 1);
+  assert.equal(filterRail(rail, 'fire')[2].items.length, 1);
+  assert.equal(filterRail(rail, 'fire')[0].items.length, 0);
+});
+
+test('a subject\'s section: GitHub first, then what was recorded, then its kind', () => {
+  assert.equal(sectionOf(null, null), 'other');
+  assert.equal(sectionOf({ kind: 'pr' }, { role: 'developer' }), 'developer');
+  assert.equal(sectionOf({ kind: 'pr', role: 'developer' }, null), 'developer');
+  assert.equal(sectionOf({ kind: 'issue' }, null), 'developer');
+  assert.equal(sectionOf({ kind: 'pr' }, null), 'reviewer');
+  assert.equal(statusOf('reviewer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T00:00:00Z' }) }).text, 'Pushed since your review');
+  assert.equal(statusOf('developer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewDecision: 'CHANGES_REQUESTED' }) }).stage, 4);
+});

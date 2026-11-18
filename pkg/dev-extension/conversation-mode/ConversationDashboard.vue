@@ -186,13 +186,15 @@ export default {
       return s ? shortRef(s.repo, s.number) : '';
     },
 
+    /** Open the item's chat, or start one: about it, and recorded as yours or as a review. */
     chatButton(item, kind = 'pr') {
       const id = this.chatOf(item);
+      const role = kind === 'issue' || this.prTab === 'mine' ? 'developer' : 'reviewer';
 
       if (id) {
         this.$emit('open-chat', id);
       } else {
-        this.$emit('start-chat', subjectOf(item, kind));
+        this.$emit('start-chat', { ...subjectOf(item, kind), role });
       }
     },
 

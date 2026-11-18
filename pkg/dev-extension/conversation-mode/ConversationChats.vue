@@ -1,15 +1,22 @@
 <script>
-// Conversation mode's chats: a tab per chat and the chat itself.
+// Conversation mode's chats: a rail of what they are about, and the chats of the one chosen.
 //
-// The list, what each agent is doing and which chat is current belong to the page around this
-// (ConversationMode.vue), because the dashboard reads the same ones. This draws them and says what
-// was asked: select, create, rename, close. A chat's pane is mounted the first time it is current
-// and kept, so going back to a tab - or to the dashboard and back - is instant and keeps the
-// socket.
+// The rail is the Dev product's sidebar shape (rail.mjs): DEVELOPER for your pull requests and
+// issues, REVIEWER for the pull requests you review, OTHER for chats about neither. An issue or a
+// pull request is one item, its chats are its tabs, and its header is what the Dev product shows
+// for one: the title, where it stands, and the stage strip (StageSteps, with the Dev product's
+// own steps). A chat in OTHER is an item of its own.
+//
+// The list, what each agent is doing, which chat is about what, GitHub and which chat is current
+// belong to the page around this (ConversationMode.vue); this draws them and says what was asked.
+// A chat's pane is mounted the first time it is current and kept, so going back to it - or to the
+// dashboard and back - is instant and keeps its socket.
 import StudioTerminal from '../components/StudioTerminal.vue';
+import StageSteps from '../components/StageSteps.vue';
 import AppIcon from '../components/focus/AppIcon.vue';
+import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import { chatCommand } from './config.mjs';
-import { shortRef } from './projects.mjs';
+import { railSections, filterRail } from './rail.mjs';
 
 /** Chips in the links bar before "+N more". */
 const LINKS_SHOWN = 8;
@@ -23,32 +30,75 @@ const STATE_LABEL = {
   working: 'Working', input: 'Waiting for you', idle: 'Idle', finished: 'Done', none: 'Not running'
 };
 
+const SECTION_ICON = { developer: 'pencil', reviewer: 'check', other: 'comment' };
+
 export default {
   name: 'ConversationChats',
 
-  components: { StudioTerminal, AppIcon },
+  components: { StudioTerminal, StageSteps, AppIcon },
 
   emits: ['select', 'create', 'rename', 'close'],
 
   props: {
-    chats:    { type: Array, default: () => [] },
-    activity: { type: Object, default: () => ({}) },
-    links:    { type: Object, default: () => ({}) },
-    /** chat id -> its links as chips (linkify.mjs, chatLinks), from the page around this. */
+    chats:     { type: Array, default: () => [] },
+    activity:  { type: Object, default: () => ({}) },
+    links:     { type: Object, default: () => ({}) },
+    /** chat id -> its links as chips (linkify.mjs, chatLinks). */
     chatLinks: { type: Object, default: () => ({}) },
-    current:  { type: String, default: '' },
-    loading:  { type: Boolean, default: false },
-    creating: { type: Boolean, default: false },
+    /** GitHub as myWork() answers it: where each item stands. */
+    work:      { type: Object, default: () => ({}) },
+    current:   { type: String, default: '' },
+    loading:   { type: Boolean, default: false },
+    creating:  { type: Boolean, default: false },
   },
 
   data() {
     return {
-      opened:     {}, renaming:   '', renameText: '', closing:    '', linksAll:   false,
+      opened:     {},
+      renaming:   '',
+      renameText: '',
+      closing:    '',
+      linksAll:   false,
+      query:      '',
+      /** The chat last open in each item, so going back to an item goes back to it. */
+      lastInItem: {},
     };
   },
 
   computed: {
     LINKS_SHOWN: () => LINKS_SHOWN,
+
+    sections() {
+      return railSections(this.chats, this.links, this.work, this.activity);
+    },
+
+    shownSections() {
+      return filterRail(this.sections, this.query);
+    },
+
+    items() {
+      return this.sections.flatMap((s) => s.items);
+    },
+
+    currentItem() {
+      return this.items.find((i) => i.chatIds.includes(this.current)) || null;
+    },
+
+    itemChats() {
+      const ids = this.currentItem?.chatIds || [];
+
+      return this.chats.filter((c) => ids.includes(c.id));
+    },
+
+    steps() {
+      const item = this.currentItem;
+
+      if (!item?.subject || item.status.stage < 0) {
+        return [];
+      }
+
+      return item.section === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
+    },
 
     currentLinks() {
       return this.chatLinks[this.current] || [];
@@ -65,6 +115,9 @@ export default {
       handler(id) {
         if (id && !this.opened[id]) {
           this.opened = { ...this.opened, [id]: true };
+        }
+        if (id && this.currentItem) {
+          this.lastInItem = { ...this.lastInItem, [this.currentItem.key]: id };
         }
         this.closing = '';
         this.linksAll = false;
@@ -90,23 +143,38 @@ export default {
       return chatCommand(chat.id, chat.cli);
     },
 
-    stateOf(id) {
-      return this.activity[id] || 'none';
+    icon: (section) => SECTION_ICON[section] || 'comment',
+
+    openItem(item) {
+      const last = this.lastInItem[item.key];
+
+      this.$emit('select', item.chatIds.includes(last) ? last : item.chatIds[0]);
     },
 
-    /** "PR", "Preview", … - the subject chip says what the subject is (a PR or an issue). */
-    linkKind(link) {
-      return link.kind === 'subject' ? (link.sub === 'issue' ? 'Issue' : 'PR') : LINK_KIND[link.kind] || '';
+    /** A new chat in the current item: about the same subject, or a chat of its own in OTHER. */
+    newChatHere() {
+      this.$emit('create', this.currentItem?.subject ? { subject: this.currentItem.subject, quiet: true } : null);
+    },
+
+    /** A tab's label: the chat's title without the item's own reference in front of it. */
+    tabLabel(chat) {
+      const ref = this.currentItem?.ref;
+      const rest = ref && chat.title.startsWith(ref) ? chat.title.slice(ref.length).replace(/^[\s·:-]+/, '') : chat.title;
+
+      return rest || 'Chat';
+    },
+
+    stateOf(id) {
+      return this.activity[id] || 'none';
     },
 
     stateLabel(id) {
       return STATE_LABEL[this.stateOf(id)] || '';
     },
 
-    subjectRef(id) {
-      const s = this.links[id]?.subject;
-
-      return s ? shortRef(s.repo, s.number) : '';
+    /** "PR", "Preview", … - the subject chip says what the subject is (a PR or an issue). */
+    linkKind(link) {
+      return link.kind === 'subject' ? (link.sub === 'issue' ? 'Issue' : 'PR') : LINK_KIND[link.kind] || '';
     },
 
     startRename(chat) {
@@ -136,162 +204,264 @@ export default {
 
 <template>
   <div class="chats">
-    <div
-      class="chats__tabs"
-      role="tablist"
-      aria-label="Chats"
+    <aside
+      class="chats__rail"
+      aria-label="Chats by what they are about"
     >
-      <div
-        v-for="chat in chats"
-        :key="chat.id"
-        class="chats__tab"
-        :class="{ 'chats__tab--on': chat.id === current }"
-      >
+      <div class="chats__find">
         <input
-          v-if="renaming === chat.id"
-          ref="renameInput"
-          v-model="renameText"
-          class="chats__rename"
-          aria-label="Chat name"
-          @keydown.enter.prevent="finishRename"
-          @keydown.esc.prevent="renaming = ''"
-          @blur="finishRename"
+          v-model="query"
+          type="search"
+          class="chats__find-input"
+          placeholder="Find a chat"
+          aria-label="Find a chat"
         >
         <button
-          v-else
           type="button"
-          role="tab"
-          class="chats__tab-button"
-          :aria-selected="chat.id === current ? 'true' : 'false'"
-          :title="`${ stateLabel(chat.id) } - double-click to rename`"
-          :data-testid="`conversation-tab-${ chat.id }`"
-          @click="$emit('select', chat.id)"
-          @dblclick="startRename(chat)"
-        >
-          <span
-            class="chats__dot"
-            :class="`chats__dot--${ stateOf(chat.id) }`"
-            :aria-label="stateLabel(chat.id)"
-          />
-          <span class="chats__title">{{ chat.title }}</span>
-          <span
-            v-if="subjectRef(chat.id) && !chat.title.startsWith(subjectRef(chat.id))"
-            class="chats__ref"
-          >{{ subjectRef(chat.id) }}</span>
-        </button>
-        <template v-if="closing === chat.id">
-          <span class="chats__confirm">Close?</span>
-          <button
-            type="button"
-            class="chats__confirm-yes"
-            :data-testid="`conversation-close-yes-${ chat.id }`"
-            @click="closing = ''; $emit('close', chat.id)"
-          >
-            Yes
-          </button>
-          <button
-            type="button"
-            class="chats__confirm-no"
-            @click="closing = ''"
-          >
-            No
-          </button>
-        </template>
-        <button
-          v-else-if="renaming !== chat.id"
-          type="button"
-          class="chats__close"
-          :aria-label="`Close ${ chat.title }`"
-          :data-testid="`conversation-close-${ chat.id }`"
-          @click="closing = chat.id"
-        >
-          <i class="icon icon-close" />
-        </button>
-      </div>
-      <button
-        type="button"
-        class="chats__new"
-        :disabled="creating"
-        data-testid="conversation-new"
-        @click="$emit('create')"
-      >
-        <AppIcon
-          :name="creating ? 'spinner' : 'plus'"
-          :size="14"
-        />
-        New chat
-      </button>
-    </div>
-
-    <nav
-      v-if="currentLinks.length"
-      class="chats__links"
-      aria-label="Links in this chat"
-      data-testid="chat-links"
-    >
-      <a
-        v-for="link in shownLinks"
-        :key="link.key"
-        class="chats__link"
-        :class="`chats__link--${ link.kind }`"
-        :href="link.url"
-        :title="link.url"
-        target="_blank"
-        rel="noopener noreferrer"
-      ><span
-        v-if="linkKind(link)"
-        class="chats__link-kind"
-      >{{ linkKind(link) }}</span>{{ link.label }}</a>
-      <button
-        v-if="currentLinks.length > LINKS_SHOWN"
-        type="button"
-        class="chats__link-more"
-        @click="linksAll = !linksAll"
-      >
-        {{ linksAll ? 'Fewer' : `+${ currentLinks.length - LINKS_SHOWN } more` }}
-      </button>
-    </nav>
-
-    <main class="chats__body">
-      <p
-        v-if="loading"
-        class="chats__empty"
-      >
-        Loading your chats…
-      </p>
-      <div
-        v-else-if="!chats.length"
-        class="chats__empty"
-      >
-        <p>No chats yet. Each one works in the interrupt-duty repo, with its memory and tools.</p>
-        <button
-          type="button"
-          class="chats__new chats__new--big"
+          class="chats__find-new"
           :disabled="creating"
-          @click="$emit('create')"
+          title="New chat"
+          aria-label="New chat"
+          data-testid="conversation-new"
+          @click="$emit('create', null)"
         >
           <AppIcon
             :name="creating ? 'spinner' : 'plus'"
             :size="14"
           />
-          Start a chat
         </button>
       </div>
-      <template
-        v-for="chat in chats"
-        :key="chat.id"
+      <p
+        v-if="loading"
+        class="chats__rail-empty"
       >
-        <StudioTerminal
-          v-if="opened[chat.id]"
-          v-show="chat.id === current"
-          class="chats__pane"
-          skin="conversation"
-          :session="chat.id"
-          :mode="chat.cli || ''"
-          :command="command(chat)"
-        />
+        Loading your chats…
+      </p>
+      <template
+        v-for="sec in shownSections"
+        :key="sec.id"
+      >
+        <section
+          v-if="sec.items.length"
+          class="chats__sec"
+          :data-testid="`rail-${ sec.id }`"
+        >
+          <h3 class="chats__sec-head">
+            <AppIcon
+              :name="icon(sec.id)"
+              :size="12"
+            />
+            {{ sec.label }}
+          </h3>
+          <button
+            v-for="item in sec.items"
+            :key="item.key"
+            type="button"
+            class="chats__item"
+            :class="{ 'chats__item--on': currentItem && item.key === currentItem.key }"
+            :title="item.title"
+            :data-testid="`rail-item-${ item.key }`"
+            @click="openItem(item)"
+          >
+            <span
+              class="chats__dot"
+              :class="`chats__dot--${ item.activity }`"
+              :aria-label="stateLabel(item.chatIds.find((id) => stateOf(id) === item.activity) || '')"
+            />
+            <span class="chats__item-text">
+              <span class="chats__item-title">{{ item.title }}</span>
+              <span class="chats__item-meta">
+                <template v-if="item.ref">{{ item.ref }}</template>
+                <span
+                  v-if="item.status.text"
+                  :class="`chats__status chats__status--${ item.status.tone || 'plain' }`"
+                >{{ item.ref ? ' · ' : '' }}{{ item.status.text }}</span>
+                <template v-if="item.chatIds.length > 1"> · {{ item.chatIds.length }} chats</template>
+              </span>
+            </span>
+          </button>
+        </section>
       </template>
-    </main>
+      <p
+        v-if="!loading && !chats.length"
+        class="chats__rail-empty"
+      >
+        No chats yet. Start one with +, or from a pull request on the dashboard.
+      </p>
+    </aside>
+
+    <div class="chats__main">
+      <header
+        v-if="currentItem && currentItem.subject"
+        class="chats__head"
+      >
+        <div class="chats__head-text">
+          <a
+            class="chats__head-title"
+            :href="currentItem.url"
+            target="_blank"
+            rel="noopener noreferrer"
+          >{{ currentItem.title }}</a>
+          <span class="chats__head-meta">
+            {{ currentItem.ref }}<template v-if="currentItem.status.text"> · <span :class="`chats__status chats__status--${ currentItem.status.tone || 'plain' }`">{{ currentItem.status.text }}</span></template>
+          </span>
+        </div>
+        <StageSteps
+          v-if="steps.length"
+          class="chats__stages"
+          :steps="steps"
+          :current-index="currentItem.status.stage"
+        />
+      </header>
+
+      <div
+        v-if="currentItem"
+        class="chats__tabs"
+        role="tablist"
+        aria-label="Chats"
+      >
+        <div
+          v-for="chat in itemChats"
+          :key="chat.id"
+          class="chats__tab"
+          :class="{ 'chats__tab--on': chat.id === current }"
+        >
+          <input
+            v-if="renaming === chat.id"
+            ref="renameInput"
+            v-model="renameText"
+            class="chats__rename"
+            aria-label="Chat name"
+            @keydown.enter.prevent="finishRename"
+            @keydown.esc.prevent="renaming = ''"
+            @blur="finishRename"
+          >
+          <button
+            v-else
+            type="button"
+            role="tab"
+            class="chats__tab-button"
+            :aria-selected="chat.id === current ? 'true' : 'false'"
+            :title="`${ chat.title } - ${ stateLabel(chat.id) } - double-click to rename`"
+            :data-testid="`conversation-tab-${ chat.id }`"
+            @click="$emit('select', chat.id)"
+            @dblclick="startRename(chat)"
+          >
+            <span
+              class="chats__dot"
+              :class="`chats__dot--${ stateOf(chat.id) }`"
+              :aria-label="stateLabel(chat.id)"
+            />
+            <span class="chats__title">{{ tabLabel(chat) }}</span>
+          </button>
+          <template v-if="closing === chat.id">
+            <span class="chats__confirm">Close?</span>
+            <button
+              type="button"
+              class="chats__confirm-yes"
+              :data-testid="`conversation-close-yes-${ chat.id }`"
+              @click="closing = ''; $emit('close', chat.id)"
+            >
+              Yes
+            </button>
+            <button
+              type="button"
+              class="chats__confirm-no"
+              @click="closing = ''"
+            >
+              No
+            </button>
+          </template>
+          <button
+            v-else-if="renaming !== chat.id"
+            type="button"
+            class="chats__close"
+            :aria-label="`Close ${ chat.title }`"
+            :data-testid="`conversation-close-${ chat.id }`"
+            @click="closing = chat.id"
+          >
+            <i class="icon icon-close" />
+          </button>
+        </div>
+        <button
+          type="button"
+          class="chats__new"
+          :disabled="creating"
+          data-testid="conversation-new-here"
+          @click="newChatHere"
+        >
+          <AppIcon
+            :name="creating ? 'spinner' : 'plus'"
+            :size="14"
+          />
+          {{ currentItem.subject ? `New chat on ${ currentItem.ref }` : 'New chat' }}
+        </button>
+      </div>
+
+      <nav
+        v-if="currentLinks.length"
+        class="chats__links"
+        aria-label="Links in this chat"
+        data-testid="chat-links"
+      >
+        <a
+          v-for="link in shownLinks"
+          :key="link.key"
+          class="chats__link"
+          :class="`chats__link--${ link.kind }`"
+          :href="link.url"
+          :title="link.url"
+          target="_blank"
+          rel="noopener noreferrer"
+        ><span
+          v-if="linkKind(link)"
+          class="chats__link-kind"
+        >{{ linkKind(link) }}</span>{{ link.label }}</a>
+        <button
+          v-if="currentLinks.length > LINKS_SHOWN"
+          type="button"
+          class="chats__link-more"
+          @click="linksAll = !linksAll"
+        >
+          {{ linksAll ? 'Fewer' : `+${ currentLinks.length - LINKS_SHOWN } more` }}
+        </button>
+      </nav>
+
+      <main class="chats__body">
+        <div
+          v-if="!loading && !chats.length"
+          class="chats__empty"
+        >
+          <p>No chats yet. Each one works in the interrupt-duty repo, with its memory and tools.</p>
+          <button
+            type="button"
+            class="chats__new chats__new--big"
+            :disabled="creating"
+            @click="$emit('create', null)"
+          >
+            <AppIcon
+              :name="creating ? 'spinner' : 'plus'"
+              :size="14"
+            />
+            Start a chat
+          </button>
+        </div>
+        <template
+          v-for="chat in chats"
+          :key="chat.id"
+        >
+          <StudioTerminal
+            v-if="opened[chat.id]"
+            v-show="chat.id === current"
+            class="chats__pane"
+            skin="conversation"
+            :session="chat.id"
+            :mode="chat.cli || ''"
+            :command="command(chat)"
+          />
+        </template>
+      </main>
+    </div>
   </div>
 </template>
 
@@ -307,8 +477,168 @@ export default {
   .chats {
     display:        flex;
     flex:           1 1 auto;
-    flex-direction: column;
+    flex-direction: row;
     min-height:     0;
+
+    // The rail: the Dev product's sidebar, in the mockup's colours.
+    &__rail {
+      flex:           0 0 280px;
+      display:        flex;
+      flex-direction: column;
+      gap:            4px;
+      min-height:     0;
+      padding:        10px 8px;
+      overflow-y:     auto;
+      border-right:   1px solid var(--conv-line);
+      background:     var(--conv-surface);
+    }
+
+    &__find {
+      display: flex;
+      gap:     6px;
+      padding: 0 4px 6px;
+    }
+
+    &__find-input {
+      flex:          1 1 auto;
+      min-width:     0;
+      padding:       6px 10px;
+      border:        1px solid var(--conv-line);
+      border-radius: 8px;
+      background:    var(--conv-page);
+      color:         var(--conv-text);
+      font-size:     13px;
+    }
+
+    &__find-new {
+      display:         inline-flex;
+      align-items:     center;
+      justify-content: center;
+      width:           32px;
+      border:          1px solid var(--conv-line);
+      border-radius:   8px;
+      background:      var(--conv-surface);
+      color:           var(--conv-ink);
+      cursor:          pointer;
+    }
+
+    &__rail-empty {
+      margin:    8px;
+      color:     var(--conv-muted);
+      font-size: 12px;
+    }
+
+    &__sec {
+      margin-top: 6px;
+    }
+
+    &__sec-head {
+      display:        flex;
+      align-items:    center;
+      gap:            6px;
+      margin:         6px 8px 4px;
+      color:          var(--conv-meta);
+      font-size:      11px;
+      font-weight:    700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    &__item {
+      display:       flex;
+      align-items:   flex-start;
+      gap:           8px;
+      width:         100%;
+      padding:       8px 10px;
+      border:        0;
+      border-radius: 8px;
+      background:    none;
+      color:         var(--conv-text);
+      cursor:        pointer;
+      text-align:    left;
+
+      &:hover { background: var(--conv-page); }
+
+      &--on {
+        background: var(--conv-mint);
+
+        &:hover { background: var(--conv-mint); }
+      }
+
+      .chats__dot { margin-top: 6px; }
+    }
+
+    &__item-text {
+      display:        flex;
+      flex-direction: column;
+      min-width:      0;
+    }
+
+    &__item-title {
+      display:            -webkit-box;
+      overflow:           hidden;
+      font-size:          13px;
+      font-weight:        600;
+      line-height:        1.3;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    &__item-meta {
+      color:     var(--conv-meta);
+      font-size: 11px;
+    }
+
+    &__status {
+      &--warn { color: var(--conv-orange-text); font-weight: 600; }
+      &--ok { color: var(--conv-ok); font-weight: 600; }
+    }
+
+    &__main {
+      display:        flex;
+      flex:           1 1 auto;
+      flex-direction: column;
+      min-width:      0;
+      min-height:     0;
+    }
+
+    &__head {
+      display:       flex;
+      flex-wrap:     wrap;
+      align-items:   center;
+      justify-content: space-between;
+      gap:           12px;
+      padding:       12px 18px;
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-surface);
+    }
+
+    &__head-text {
+      display:        flex;
+      flex-direction: column;
+      min-width:      0;
+    }
+
+    &__head-title {
+      overflow:        hidden;
+      color:           var(--conv-ink);
+      font-size:       17px;
+      font-weight:     600;
+      text-decoration: none;
+      text-overflow:   ellipsis;
+      white-space:     nowrap;
+
+      &:hover { text-decoration: underline; }
+    }
+
+    &__head-meta {
+      color:     var(--conv-meta);
+      font-size: 12px;
+    }
+
+    &__stages {
+      flex: 0 1 560px;
+    }
 
     &__tabs {
       display:       flex;

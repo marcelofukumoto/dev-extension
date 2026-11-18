@@ -23,7 +23,7 @@ import {
 import { CONVERSATION_ROUTE } from './routes';
 import { CONVERSATION_WORKSPACE, nextChatTitle } from './config.mjs';
 import {
-  PROJECTS, mergeWork, subjectKey, chatTitleFor, openingMessage
+  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage
 } from './projects.mjs';
 import {
   extractUrls, githubRef, titleFromMessage, isDefaultTitle, chatLinks
@@ -455,7 +455,7 @@ export default {
      * message (queued, and read by claude when the pane starts - which is the moment the chats
      * view shows it), and recorded in the links so the dashboard finds it again.
      */
-    async createChat(subject = null) {
+    async createChat(subject = null, quiet = false) {
       if (this.creating) {
         return;
       }
@@ -463,8 +463,15 @@ export default {
       this.starting = subject ? subjectKey(subject.repo, subject.number) : '';
       this.error = '';
       try {
-        const title = subject ? chatTitleFor(subject) : nextChatTitle(this.chats.map((c) => c.title));
-        const made = await startConversation(CONVERSATION_WORKSPACE, title, subject ? openingMessage(subject) : '');
+        // Another chat on a subject that has one already ("New chat on dashboard#19830") is named for
+        // its place among them and opens with nothing queued: it is for a question of its own.
+        const others = subject ? this.chats.filter((c) => {
+          const s = this.links[c.id]?.subject;
+
+          return s && subjectKey(s.repo, s.number) === subjectKey(subject.repo, subject.number);
+        }).length : 0;
+        const title = !subject ? nextChatTitle(this.chats.map((c) => c.title)) : quiet && others ? `${ shortRef(subject.repo, subject.number) } chat ${ others + 1 }` : chatTitleFor(subject);
+        const made = await startConversation(CONVERSATION_WORKSPACE, title, subject && !quiet ? openingMessage(subject) : '');
 
         this.chats = [...this.chats, { id: made.id, title: made.title || title, cli: '' }];
         if (subject) {
@@ -646,11 +653,12 @@ export default {
       :activity="activity"
       :links="links"
       :chat-links="chatLinksById"
+      :work="work"
       :current="current"
       :loading="loadingChats"
       :creating="creating"
       @select="(id) => go('chat', id, true)"
-      @create="createChat()"
+      @create="(p) => createChat(p?.subject || null, !!p?.quiet)"
       @rename="renameChat"
       @close="closeChat"
     />

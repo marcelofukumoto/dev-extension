@@ -164,11 +164,11 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
 
     if (checks === 'failing' || review === 'changes') {
       rows.push({
-        kind: 'blocked', key, title: pr.title, subject: subjectOf(pr), chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: review === 'changes' ? 'Changes requested' : `${ pr.checks.failing } check${ pr.checks.failing === 1 ? '' : 's' } failing`,
+        kind: 'blocked', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: review === 'changes' ? 'Changes requested' : `${ pr.checks.failing } check${ pr.checks.failing === 1 ? '' : 's' } failing`,
       });
     } else if (review === 'approved') {
       rows.push({
-        kind: 'ready', key, title: pr.title, subject: subjectOf(pr), chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: checks === 'pending' ? 'Approved, checks running' : 'Approved',
+        kind: 'ready', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: checks === 'pending' ? 'Approved, checks running' : 'Approved',
       });
     }
   }
@@ -177,11 +177,11 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
 
     if (pr.reviewRequested) {
       rows.push({
-        kind: 'review', key, title: pr.title, subject: subjectOf(pr), chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`,
+        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`,
       });
     } else if (pushedSinceReview(pr)) {
       rows.push({
-        kind: 'rereview', key, title: pr.title, subject: subjectOf(pr), chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`,
+        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`,
       });
     }
   }
