@@ -22,6 +22,9 @@ import DevSidebar from '../components/DevSidebar.vue';
 import GlobalConversations from '../components/GlobalConversations.vue';
 import ClaudeLogo from '../components/ClaudeLogo.vue';
 import FocusMark from '../components/FocusMark.vue';
+// Conversation mode (marcelofukumoto fork, FORK.md): its menu entry, and it takes the window like Focus.
+import AppIcon from '../components/focus/AppIcon.vue';
+import { CONVERSATION_ROUTE } from '../conversation-mode/routes';
 import VpnLogin from '../components/VpnLogin.vue';
 import { watch as watchApi } from '../events';
 import { VPN_PATH } from '../vpn';
@@ -34,7 +37,7 @@ export default {
   name: 'DevShell',
 
   components: {
-    WindowManager, ActionMenu, PromptRemove, ModalManager, GrowlManager, DevSidebar, GlobalConversations, ClaudeLogo, FocusMark, VpnLogin
+    WindowManager, ActionMenu, PromptRemove, ModalManager, GrowlManager, DevSidebar, GlobalConversations, ClaudeLogo, FocusMark, VpnLogin, AppIcon
   },
 
   data() {
@@ -78,7 +81,7 @@ export default {
      * the way back.
      */
     bare() {
-      return this.$route.name === FOCUS_ROUTE;
+      return this.$route.name === FOCUS_ROUTE || this.$route.name === CONVERSATION_ROUTE;
     },
 
     /** Who is signed in, the way the shell's own header reads it. */
@@ -101,6 +104,10 @@ export default {
      */
     focusTo() {
       return { name: FOCUS_ROUTE, params: { product: DEV_PRODUCT, cluster: BLANK_CLUSTER } };
+    },
+
+    conversationTo() {
+      return { name: CONVERSATION_ROUTE, params: { product: DEV_PRODUCT, cluster: BLANK_CLUSTER } };
     },
 
     host() {
@@ -244,6 +251,18 @@ export default {
               @click="menu = false"
             >
               <FocusMark class="dev-top__item-mark" /> Focus
+            </router-link>
+            <router-link
+              :to="conversationTo"
+              class="dev-top__item"
+              data-testid="dev-menu-conversation"
+              @click="menu = false"
+            >
+              <AppIcon
+                name="comment"
+                :size="14"
+                class="dev-top__item-mark"
+              /> Conversation
             </router-link>
             <span
               v-if="principal && principal.loginName"

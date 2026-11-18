@@ -14,7 +14,22 @@ Upstream changes almost daily, so our code stays out of its way:
 - Merge upstream into `main` (`git fetch upstream && git merge upstream/main`), then set the
   version below again.
 
-Edits to upstream files: none yet.
+Our code: `pkg/dev-extension/conversation-mode/` and `pkg/dev-extension/tests/conversation-mode.test.mjs`.
+
+Edits to upstream files, each marked with a comment naming this file:
+
+- `pkg/dev-extension/routing/index.ts`: the Conversation route (an import, a lazy component, one route).
+- `pkg/dev-extension/pages/DevShell.vue`: the Conversation entry in the Dev menu, and the route in
+  `bare()` so it takes the window like Focus.
+
+## What Conversation mode relies on, outside this repo
+
+- The `lte-duty` workspace on mf-dev: its pod runs the commands, and the conversations are
+  registered under its name. Never delete it: dev-api's housekeeping ends every conversation whose
+  workspace is gone.
+- `/workspaces/.conversation/` on the node: the interrupt-duty checkout, `bin/conv-shell` (the
+  command tunnel) and the tools. Housekeeping skips dot-directories, which is why it is one.
+- The Secret `dev-system/conversation-env` (key `.env`), which conv-shell copies into the checkout.
 
 ## Version
 

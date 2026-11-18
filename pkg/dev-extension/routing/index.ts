@@ -18,6 +18,10 @@ import Tools from '../pages/Tools.vue';
 import Focus from '../pages/Focus.vue';
 import Settings from '../pages/Settings.vue';
 import Agents from '../pages/Agents.vue';
+import { CONVERSATION_PAGE, CONVERSATION_ROUTE } from '../conversation-mode/routes';
+
+// Conversation mode (marcelofukumoto fork, FORK.md): its own chunk, like Strata below.
+const ConversationMode = () => import(/* webpackChunkName: "conversation" */ '../conversation-mode/ConversationMode.vue');
 
 const devMeta = { product: DEV_PRODUCT, cluster: BLANK_CLUSTER };
 
@@ -86,6 +90,9 @@ const devRoutes: PluginRouteRecordRaw[] = [
         // The deck: the same queue My Work ranks, one card at a time. See pages/Focus.vue.
         {
           name: FOCUS_ROUTE, path: FOCUS_PAGE, component: Focus, meta: devMeta
+        },
+        {
+          name: CONVERSATION_ROUTE, path: CONVERSATION_PAGE, component: ConversationMode, meta: devMeta
         },
         {
           name: SETTINGS_ROUTE, path: SETTINGS_PAGE, component: Settings, meta: devMeta
