@@ -354,11 +354,16 @@ export default {
               :key="x.key || refOf(x)"
             >
               <td class="br__td-title">
-                <a
-                  :href="x.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >{{ x.title }}</a>
+                <button
+                  type="button"
+                  class="br__title"
+                  :title="chatOf(x) ? 'Open its chat' : 'Start a chat about it'"
+                  :disabled="isStarting(x)"
+                  data-testid="browser-title"
+                  @click="chatButton(x)"
+                >
+                  {{ x.title }}
+                </button>
                 <span class="br__muted">{{ refOf(x) }}<template v-if="!isIssues && tab !== 'mine'"> · {{ x.author }}</template></span>
               </td>
               <template v-if="!isIssues">
@@ -409,6 +414,13 @@ export default {
                 >
                   {{ chatOf(x) ? 'Open chat' : (isStarting(x) ? 'Starting…' : 'Start chat') }}
                 </button>
+                <a
+                  class="br__btn br__gh"
+                  :href="x.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :aria-label="`${ refOf(x) } on GitHub`"
+                >GitHub</a>
               </td>
             </tr>
           </tbody>
@@ -590,15 +602,21 @@ export default {
 
     &__td-title {
       min-width: 300px;
+    }
 
-      a {
-        display:         block;
-        color:           var(--conv-text);
-        font-weight:     500;
-        text-decoration: none;
+    &__title {
+      display:     block;
+      padding:     0;
+      border:      0;
+      background:  none;
+      color:       var(--conv-text);
+      cursor:      pointer;
+      font:        inherit;
+      font-weight: 500;
+      text-align:  left;
 
-        &:hover { text-decoration: underline; }
-      }
+      &:hover:not(:disabled) { text-decoration: underline; }
+      &:disabled { cursor: default; }
     }
 
     &__why {
@@ -608,8 +626,15 @@ export default {
     }
 
     &__td-action {
-      width:      1%;
-      text-align: right;
+      width:       1%;
+      text-align:  right;
+      white-space: nowrap;
+    }
+
+    &__gh {
+      display:         inline-block;
+      margin-left:     6px;
+      text-decoration: none;
     }
 
     &__nowrap {

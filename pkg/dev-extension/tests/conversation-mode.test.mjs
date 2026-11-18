@@ -459,3 +459,73 @@ test('why an approved pull request is not merged yet', async() => {
   assert.equal(readyReason(pr({ number: 1, approved: true, mergeState: 'UNKNOWN' })), 'Approved');
   assert.equal(readyReason(pr({ number: 1, approved: true, checks: { failing: 0, pending: 2, total: 5 } })), 'Approved, checks still running');
 });
+
+// ── What an ongoing chat is doing (transcript-read.mjs), run the way the agent pod runs it ──────
+
+async function readFake(lines) {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const { TRANSCRIPT_READ } = await import('../conversation-mode/transcript-read.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'conv-read-'));
+  const home = join(root, '.home');
+  const uuid = '01234567-89ab-cdef-0123-456789abcdef';
+
+  mkdirSync(join(root, 'sessions'), { recursive: true });
+  mkdirSync(join(home, '.claude/projects/key'), { recursive: true });
+  writeFileSync(join(root, 'sessions/p-1.id'), uuid);
+  writeFileSync(join(home, `.claude/projects/key/${ uuid }.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n'));
+
+  return JSON.parse(execFileSync('node', ['-e', TRANSCRIPT_READ, home, 'key', 'p-1', 'p-none']).toString())['p-1'];
+}
+const said = (who, content, at = '2026-11-18T10:00:00Z') => ({ type: who, timestamp: at, message: { content } });
+const tool = (name, input) => ({ type: 'tool_use', name, input });
+
+test('the reader says what the agent did last: its last tool, in a few words', async() => {
+  const out = await readFake([
+    said('user', 'Review https://github.com/rancher/rancher-ai-ui/pull/353'),
+    said('assistant', [{ type: 'text', text: 'Looking at the PR first.' }, tool('Bash', { command: 'gh pr view 353', description: 'Read the PR' })]),
+    said('user', [{ type: 'tool_result', content: 'https://example.com/not-a-link-anyone-chose' }]),
+    said('assistant', [tool('Edit', { file_path: '/repo/pkg/ai/Install.vue' })], '2026-11-18T10:05:00Z'),
+  ]);
+
+  assert.equal(out.first, 'Review https://github.com/rancher/rancher-ai-ui/pull/353');
+  assert.deepEqual(out.now, { text: 'Editing Install.vue', at: '2026-11-18T10:05:00Z' });
+  assert.ok(!out.urls.includes('https://example.com/not-a-link-anyone-chose'));
+});
+
+test('the reader keeps the step the to-do list marks in progress, and a command without a description', async() => {
+  const out = await readFake([
+    said('user', 'go'),
+    said('assistant', [tool('TodoWrite', {
+      todos: [
+        { content: 'Deploy', activeForm: 'Deploying the preview', status: 'completed' },
+        { content: 'Test', activeForm: 'Testing the install', status: 'in_progress' },
+      ]
+    })]),
+    said('assistant', [tool('Bash', { command: 'yarn jest pkg/ai\n--watch' })]),
+  ]);
+
+  assert.equal(out.step, 'Testing the install');
+  assert.equal(out.now.text, '$ yarn jest pkg/ai');
+});
+
+test('the reader names the question the agent is asking, and an MCP tool by its own name', async() => {
+  const asking = await readFake([said('assistant', [tool('AskUserQuestion', { questions: [{ question: 'Which backend?' }] })])]);
+  const mcp = await readFake([said('assistant', [tool('mcp__claude_ai_Google_Drive__read_file_content', {})])]);
+
+  assert.equal(asking.now.text, 'Asking: Which backend?');
+  assert.equal(mcp.now.text, 'read_file_content');
+});
+
+test('doingText: only a chat that works or asks has something to say', async() => {
+  const { doingText } = await import('../conversation-mode/transcript-read.mjs');
+  const t = { now: { text: 'Editing Install.vue', at: '' }, step: 'Testing the install' };
+
+  assert.equal(doingText(t, 'working'), 'Testing the install — Editing Install.vue');
+  assert.equal(doingText({ now: t.now, step: '' }, 'working'), 'Editing Install.vue');
+  assert.equal(doingText({ now: { text: 'Asking: Which backend?' }, step: 'Testing' }, 'input'), 'Asking: Which backend?');
+  assert.equal(doingText(t, 'idle'), '');
+  assert.equal(doingText(undefined, 'working'), '');
+});

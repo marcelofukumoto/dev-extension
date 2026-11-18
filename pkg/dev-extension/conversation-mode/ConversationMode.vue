@@ -40,6 +40,9 @@ const STATE_POLL_MS = 5000;
 /** How often the transcripts are read: the links bar and the chats' names come from them. */
 const TRANSCRIPT_POLL_MS = 20000;
 
+/** ...and how often while a chat is working, so what it is doing (the dashboard says) keeps up. */
+const TRANSCRIPT_BUSY_MS = 8000;
+
 /** GitHub in the background, whichever view is showing. */
 const WORK_REFRESH_MS = 10 * 60 * 1000;
 
@@ -90,8 +93,9 @@ export default {
       workErrors:   [],
       workLoading:  false,
       workLoadedAt: 0,
-      /** What each chat's transcript says (transcripts.ts): its first message and its links. */
+      /** What each chat's transcript says (transcripts.ts): its first message, its links, what it is doing. */
       transcripts:  {},
+      transcriptsAt: 0,
       /** Chats this page has already tried to name, so a failed rename is not retried every poll. */
       titled:       {},
       /**
@@ -110,7 +114,7 @@ export default {
     this.loadCachedWork();
     await Promise.all([this.loadChats(), this.loadLinks()]);
     this.poll = setInterval(() => this.refreshStates(), STATE_POLL_MS);
-    this.transcriptPoll = setInterval(() => this.refreshTranscripts(), TRANSCRIPT_POLL_MS);
+    this.transcriptPoll = setInterval(() => this.pollTranscripts(), TRANSCRIPT_BUSY_MS);
     this.refreshStates();
     this.refreshTranscripts();
     this.startWork();
@@ -406,6 +410,15 @@ export default {
 
     /* ── Transcripts: links and names ─────────────────────────────────────────────────────── */
 
+    /** Every poll while a chat is working; otherwise every TRANSCRIPT_POLL_MS. */
+    pollTranscripts() {
+      const busy = Object.values(this.activity).some((state) => state === 'working');
+
+      if (busy || Date.now() - this.transcriptsAt >= TRANSCRIPT_POLL_MS - TRANSCRIPT_BUSY_MS / 2) {
+        this.refreshTranscripts();
+      }
+    },
+
     async refreshTranscripts() {
       if (!this.chats.length || this.readingTranscripts) {
         return;
@@ -413,6 +426,7 @@ export default {
       this.readingTranscripts = true;
       try {
         this.transcripts = await readTranscripts(this.chats.map((c) => c.id));
+        this.transcriptsAt = Date.now();
         await this.nameChats();
       } catch {
         // The agent pod is restarting, or an exec was cut short: the next poll reads them again.
@@ -676,6 +690,7 @@ export default {
       :chats="chats"
       :activity="activity"
       :links="links"
+      :transcripts="transcripts"
       :name="firstName"
       :starting="starting"
       :work="work"

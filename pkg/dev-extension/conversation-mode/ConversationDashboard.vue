@@ -11,6 +11,7 @@ import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
 import { railSections, isArchived } from './rail.mjs';
+import { doingText } from './transcript-read.mjs';
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
@@ -42,6 +43,8 @@ export default {
     chats:    { type: Array, default: () => [] },
     activity: { type: Object, default: () => ({}) },
     links:    { type: Object, default: () => ({}) },
+    /** What each chat's transcript says (transcripts.ts): here, what an ongoing chat is doing. */
+    transcripts: { type: Object, default: () => ({}) },
     name:     { type: String, default: '' },
     starting: { type: String, default: '' },
     work:     { type: Object, default: () => ({ login: '', mine: [], reviewing: [], issues: [] }) },
@@ -296,6 +299,16 @@ export default {
     stateLabel(id) {
       return STATE_LABEL[this.activity[id] || 'none'];
     },
+    /** What an ongoing chat is doing, in a few words ('' for one that is not working or asking). */
+    doing(id) {
+      return id ? doingText(this.transcripts[id], this.activity[id]) : '';
+    },
+    /** The same for an item of the agent team: its most urgent chat that has something to say. */
+    itemDoing(item) {
+      const id = item.chatIds.find((c) => this.activity[c] === item.activity && this.doing(c));
+
+      return id ? this.doing(id) : '';
+    },
     stateOf(id) {
       return this.activity[id] || 'none';
     },
@@ -433,23 +446,28 @@ export default {
               :class="`dash__kind--${ row.kind }`"
             >{{ kindLabel(row.kind) }}</span>
             <div class="dash__row-main">
-              <a
-                v-if="row.url"
+              <button
+                type="button"
                 class="dash__row-title"
-                :href="row.url"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ row.title }}</a>
-              <span
-                v-else
-                class="dash__row-title"
-              >{{ row.title }}</span>
+                :title="row.chatId ? 'Open its chat' : 'Start a chat about it'"
+                :disabled="!row.chatId && (!row.subject || isStarting(row.subject))"
+                data-testid="attention-title"
+                @click="rowChat(row)"
+              >
+                {{ row.title }}
+              </button>
               <span class="dash__row-meta">
                 <template v-if="row.subject">{{ refOf(row.subject) }}</template>
                 <template v-if="row.why"> · {{ row.why }}</template>
                 <template v-if="row.at"> · {{ when(row.at) }}</template>
                 <template v-if="row.kind === 'question'"> · the agent is waiting for your answer</template>
               </span>
+              <span
+                v-if="doing(row.chatId)"
+                class="dash__doing"
+                :class="`dash__doing--${ stateOf(row.chatId) }`"
+                data-testid="attention-doing"
+              >{{ doing(row.chatId) }}</span>
             </div>
             <div class="dash__row-actions">
               <button
@@ -522,6 +540,12 @@ export default {
                 <span class="dash__chat-meta">
                   <template v-if="subjectFor(chat.id) && !chat.title.startsWith(subjectFor(chat.id))">{{ subjectFor(chat.id) }} · </template>{{ stateLabel(chat.id) }}
                 </span>
+                <span
+                  v-if="doing(chat.id)"
+                  class="dash__doing dash__chat-doing"
+                  :class="`dash__doing--${ stateOf(chat.id) }`"
+                  data-testid="dashboard-chat-doing"
+                >{{ doing(chat.id) }}</span>
               </button>
               <button
                 type="button"
@@ -627,6 +651,12 @@ export default {
               <td class="dash__td-title">
                 <span class="dash__team-title">{{ item.title }}</span>
                 <span class="dash__muted">{{ item.ref || 'Chat' }} · {{ item.role === 'other' ? 'Other' : item.role === 'reviewer' ? 'Reviewer' : 'Developer' }} · {{ item.chatIds.length }} chat{{ item.chatIds.length === 1 ? '' : 's' }}</span>
+                <span
+                  v-if="itemDoing(item)"
+                  class="dash__doing"
+                  :class="`dash__doing--${ item.activity }`"
+                  data-testid="team-doing"
+                >{{ itemDoing(item) }}</span>
               </td>
               <td>
                 <div
@@ -970,13 +1000,44 @@ export default {
 
     &__row-title {
       overflow:        hidden;
+      padding:         0;
+      border:          0;
+      background:      none;
       color:           var(--body-text);
+      cursor:          pointer;
+      font:            inherit;
       font-weight:     600;
+      text-align:      left;
       text-decoration: none;
       text-overflow:   ellipsis;
       white-space:     nowrap;
 
-      &:hover { text-decoration: underline; }
+      &:hover:not(:disabled) { text-decoration: underline; }
+      &:disabled { cursor: default; }
+    }
+
+    // What an ongoing chat is doing: one line, the agent's colour while it works, orange while it asks.
+    &__doing {
+      display:       block;
+      overflow:      hidden;
+      color:         var(--conv-ink);
+      font-size:     12px;
+      text-overflow: ellipsis;
+      white-space:   nowrap;
+
+      &::before {
+        content:       '';
+        display:       inline-block;
+        width:         6px;
+        height:        6px;
+        margin-right:  6px;
+        border-radius: 50%;
+        background:    var(--conv-accent);
+        vertical-align: middle;
+      }
+
+      &--working::before { animation: dash-doing 1.4s ease-in-out infinite; }
+      &--input::before { background: var(--conv-orange); }
     }
 
     &__row-meta,
@@ -1057,8 +1118,9 @@ export default {
     &__chat {
       display:     flex;
       flex:        1 1 auto;
+      flex-wrap:   wrap;
       align-items: center;
-      gap:         8px;
+      gap:         4px 8px;
       min-width:   0;
       padding:     10px 12px;
       border:      0;
@@ -1069,7 +1131,8 @@ export default {
     }
 
     &__chat-title {
-      flex:          1 1 auto;
+      flex:          1 1 0;
+      min-width:     0;
       overflow:      hidden;
       font-size:     13px;
       text-overflow: ellipsis;
@@ -1080,6 +1143,13 @@ export default {
       color:       var(--conv-muted);
       font-size:   11px;
       white-space: nowrap;
+    }
+
+    &__chat-doing {
+      flex:         1 0 100%;
+      padding-left: 16px;
+
+      &::before { display: none; }
     }
 
     &__dot {
@@ -1388,4 +1458,8 @@ export default {
       &--draft { opacity: 0.8; }
     }
   }
+
+@keyframes dash-doing {
+  50% { opacity: 0.25; }
+}
 </style>
