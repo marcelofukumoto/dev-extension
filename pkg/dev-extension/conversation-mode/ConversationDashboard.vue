@@ -527,13 +527,10 @@ export default {
                 type="button"
                 class="dash__chat-archive"
                 :aria-label="`Archive ${ chat.title }`"
-                title="Archive: off the dashboard, under Done in Chats"
+                title="Off the dashboard, under Done in Chats; the chat stays"
                 @click="$emit('archive', { ids: [chat.id], archived: true })"
               >
-                <AppIcon
-                  name="minus"
-                  :size="12"
-                />
+                Archive
               </button>
             </li>
           </ul>
@@ -890,31 +887,24 @@ export default {
       font-size: 11px;
     }
 
-    &__chat-row {
-      position: relative;
-
-      &:hover .dash__chat-archive { opacity: 1; }
-    }
 
     &__chat-archive {
-      position:      absolute;
-      top:           50%;
-      right:         -8px;
-      display:       inline-flex;
-      align-items:   center;
-      justify-content: center;
-      width:         22px;
-      height:        22px;
-      border:        1px solid var(--conv-line);
-      border-radius: 50%;
-      background:    var(--conv-surface);
+      display:       none;
+      flex:          0 0 auto;
+      margin-right:  8px;
+      padding:       2px 8px;
+      border:        0;
+      border-radius: 6px;
+      background:    none;
       color:         var(--conv-muted);
       cursor:        pointer;
-      opacity:       0;
-      transform:     translateY(-50%);
+      font-size:     11px;
 
-      &:focus-visible { opacity: 1; }
-      &:hover { color: var(--conv-ink); border-color: var(--conv-ink); }
+      &:hover,
+      &:focus-visible {
+        background: var(--conv-subtle);
+        color:      var(--conv-ink);
+      }
     }
 
     &__chip {
@@ -1049,20 +1039,33 @@ export default {
       gap:            8px;
     }
 
-    &__chat {
+    // A row is the white card; the chat and its Archive sit inside it, Archive at the end and only
+    // while the row is pointed at or focused, so the chat's state stays readable.
+    &__chat-row {
       display:       flex;
       align-items:   center;
-      gap:           8px;
-      width:         100%;
-      padding:       10px 12px;
       border:        1px solid var(--conv-line);
       border-radius: 10px;
       background:    var(--conv-surface);
+
+      &:hover { border-color: var(--conv-mint-line); }
+
+      &:hover .dash__chat-archive,
+      &:focus-within .dash__chat-archive { display: inline-block; }
+    }
+
+    &__chat {
+      display:     flex;
+      flex:        1 1 auto;
+      align-items: center;
+      gap:         8px;
+      min-width:   0;
+      padding:     10px 12px;
+      border:      0;
+      background:  none;
       color:       var(--body-text);
       cursor:      pointer;
       text-align:  left;
-
-      &:hover { border-color: var(--conv-mint-line); }
     }
 
     &__chat-title {
