@@ -1,15 +1,18 @@
 <script>
-// Conversation mode: one chat at a time, the others as tabs.
+// Conversation mode: a dashboard of what is going on, and the chats that act on it.
 //
-// Everything a conversation is - the registry, the pane, the transcript, the chat drawn from it -
-// is the Dev product's own (conversations.ts, StudioTerminal, ChatPane). This page only decides
-// which conversations are on it and what each one's pane runs: the interrupt-duty repo as its
-// working directory and conv-shell as its tunnel (see config.mjs). Started from here once, a
-// pane keeps that argv for good, because shell.sh records it and replays it after a restart.
+// Two views under one route, `/dev/c/_/conversation/:view?` - the dashboard (no view) and the
+// chats (`chat`, with the chat as the hash). This page owns what both of them read: the chats,
+// what each agent is doing, and which chat is about which pull request (links.ts). The chats view
+// is mounted the first time it is shown and then kept, so its panes - and their sockets - live
+// through a trip to the dashboard and back.
 //
-// The tab is the hash, as on a workspace's page, so a reload or a link lands on the same chat.
-import StudioTerminal from '../components/StudioTerminal.vue';
+// Everything a conversation is (the registry, the pane, the transcript, the chat drawn from it) is
+// the Dev product's own; config.mjs says how ours differ: the interrupt-duty repo as the working
+// directory and conv-shell as the tunnel.
 import AppIcon from '../components/focus/AppIcon.vue';
+import ConversationChats from './ConversationChats.vue';
+import ConversationDashboard from './ConversationDashboard.vue';
 import {
   listConversations, startConversation, renameConversation, endConversation, conversationStates
 } from '../conversations';
@@ -17,40 +20,36 @@ import { agentStateOf } from '../workspace-status';
 import {
   DEV_PRODUCT, BLANK_CLUSTER, WORKSPACES_ROUTE, FOCUS_ROUTE
 } from '../config/constants';
-import { CONVERSATION_WORKSPACE, chatCommand, nextChatTitle } from './config.mjs';
+import { CONVERSATION_ROUTE } from './routes';
+import { CONVERSATION_WORKSPACE, nextChatTitle } from './config.mjs';
+import { subjectKey, chatTitleFor, openingMessage } from './projects.mjs';
+import { readLinks, updateLinks } from './links';
 
-/** How often the tabs' dots are refreshed: what each conversation is doing. */
+/** How often what each agent is doing is asked again. */
 const STATE_POLL_MS = 5000;
-
-/** What each agent state reads as, on a tab's dot. */
-const STATE_LABEL = {
-  working: 'Working', input: 'Waiting for you', idle: 'Idle', finished: 'Done', none: 'Not running'
-};
 
 export default {
   name: 'ConversationMode',
 
-  components: { StudioTerminal, AppIcon },
+  components: { AppIcon, ConversationChats, ConversationDashboard },
 
   data() {
     return {
-      chats:      [],
-      current:    '',
-      /** Chats whose pane has been opened on this page: kept mounted, so switching back is instant. */
-      opened:     {},
-      /** What each chat's agent is doing, from the shared state poll. */
-      activity:   {},
-      loading:    true,
-      creating:   false,
-      error:      '',
-      renaming:   '',
-      renameText: '',
-      closing:    '',
+      chats:        [],
+      activity:     {},
+      links:        {},
+      loadingChats: true,
+      creating:     false,
+      /** The subject a chat is being started for, so its button says so. */
+      starting:     '',
+      error:        '',
+      /** Whether the chats view has been shown yet: it is mounted then and kept. */
+      chatsShown:   false,
     };
   },
 
   async mounted() {
-    await this.load();
+    await Promise.all([this.loadChats(), this.loadLinks()]);
     this.poll = setInterval(() => this.refreshStates(), STATE_POLL_MS);
     this.refreshStates();
   },
@@ -60,6 +59,16 @@ export default {
   },
 
   computed: {
+    view() {
+      return this.$route.params.view === 'chat' ? 'chat' : 'dashboard';
+    },
+
+    current() {
+      const id = (this.$route.hash || '').replace(/^#/, '');
+
+      return this.chats.some((c) => c.id === id) ? id : '';
+    },
+
     devTo() {
       return { name: WORKSPACES_ROUTE, params: { product: DEV_PRODUCT, cluster: BLANK_CLUSTER } };
     },
@@ -68,130 +77,74 @@ export default {
       return { name: FOCUS_ROUTE, params: { product: DEV_PRODUCT, cluster: BLANK_CLUSTER } };
     },
 
-    currentChat() {
-      return this.chats.find((c) => c.id === this.current) || null;
+    principal() {
+      return this.$store.getters['rancher/byId']('principal', this.$store.getters['auth/principalId']) || {};
+    },
+
+    /** The first name, the way the mockup greets: "Good evening, Marcelo". */
+    firstName() {
+      const name = this.principal.name || this.principal.loginName || '';
+
+      return name.split(/\s+/)[0] || '';
+    },
+
+    waiting() {
+      return this.chats.filter((c) => this.activity[c.id] === 'input').length;
     },
   },
 
   watch: {
-    '$route.hash'(hash) {
-      const id = (hash || '').replace(/^#/, '');
+    view: {
+      immediate: true,
+      handler(v) {
+        if (v === 'chat') {
+          this.chatsShown = true;
+          if (!this.current && this.chats.length) {
+            this.go('chat', this.chats[0].id, true);
+          }
+        }
+      },
+    },
 
-      if (id && id !== this.current && this.chats.some((c) => c.id === id)) {
-        this.select(id, false);
+    chats(list) {
+      if (this.view === 'chat' && !this.current && list.length) {
+        this.go('chat', list[0].id, true);
       }
     },
   },
 
   methods: {
-    async load() {
-      this.loading = true;
-      this.error = '';
+    /** To a view (and a chat), keeping the route the single place both live. */
+    go(view, id = '', replace = false) {
+      const to = {
+        name:   CONVERSATION_ROUTE,
+        params: {
+          product: DEV_PRODUCT, cluster: BLANK_CLUSTER, ...(view === 'chat' ? { view: 'chat' } : {})
+        },
+        hash: id ? `#${ id }` : '',
+      };
+
+      (replace ? this.$router.replace(to) : this.$router.push(to)).catch(() => {});
+    },
+
+    async loadChats() {
+      this.loadingChats = true;
       try {
         const list = await listConversations(CONVERSATION_WORKSPACE);
 
         this.chats = list.map((c) => ({ id: c.id, title: c.title, cli: c.cli || '' }));
-        const wanted = (this.$route.hash || '').replace(/^#/, '');
-        const first = this.chats.find((c) => c.id === wanted) || this.chats[0];
-
-        if (first) {
-          this.select(first.id, !wanted);
-        }
       } catch (e) {
         this.error = `The chats could not be listed: ${ e?.message || e }`;
       } finally {
-        this.loading = false;
+        this.loadingChats = false;
       }
     },
 
-    command(chat) {
-      return chatCommand(chat.id, chat.cli);
-    },
-
-    select(id, writeHash = true) {
-      this.current = id;
-      this.opened = { ...this.opened, [id]: true };
-      this.closing = '';
-      if (writeHash && this.$route.hash !== `#${ id }`) {
-        this.$router.replace({ ...this.$route, hash: `#${ id }` }).catch(() => {});
-      }
-    },
-
-    async create() {
-      if (this.creating) {
-        return;
-      }
-      this.creating = true;
-      this.error = '';
+    async loadLinks() {
       try {
-        const title = nextChatTitle(this.chats.map((c) => c.title));
-        const made = await startConversation(CONVERSATION_WORKSPACE, title);
-
-        this.chats.push({ id: made.id, title: made.title || title, cli: '' });
-        this.select(made.id);
+        this.links = await readLinks();
       } catch (e) {
-        this.error = `A new chat could not be started: ${ e?.message || e }`;
-      } finally {
-        this.creating = false;
-      }
-    },
-
-    startRename(chat) {
-      this.renaming = chat.id;
-      this.renameText = chat.title;
-      this.$nextTick(() => {
-        const input = this.$refs.renameInput;
-        const el = Array.isArray(input) ? input[0] : input;
-
-        el?.focus();
-        el?.select();
-      });
-    },
-
-    async finishRename() {
-      const id = this.renaming;
-      const title = this.renameText.trim();
-      const chat = this.chats.find((c) => c.id === id);
-
-      this.renaming = '';
-      if (!chat || !title || title === chat.title) {
-        return;
-      }
-      const before = chat.title;
-
-      chat.title = title;
-      try {
-        await renameConversation(CONVERSATION_WORKSPACE, id, title);
-      } catch (e) {
-        chat.title = before;
-        this.error = `The chat could not be renamed: ${ e?.message || e }`;
-      }
-    },
-
-    async close(id) {
-      this.closing = '';
-      this.error = '';
-      try {
-        await endConversation(CONVERSATION_WORKSPACE, id);
-        const at = this.chats.findIndex((c) => c.id === id);
-
-        this.chats = this.chats.filter((c) => c.id !== id);
-        const opened = { ...this.opened };
-
-        delete opened[id];
-        this.opened = opened;
-        if (this.current === id) {
-          const next = this.chats[Math.min(at, this.chats.length - 1)];
-
-          if (next) {
-            this.select(next.id);
-          } else {
-            this.current = '';
-            this.$router.replace({ ...this.$route, hash: '' }).catch(() => {});
-          }
-        }
-      } catch (e) {
-        this.error = `The chat could not be closed: ${ e?.message || e }`;
+        this.error = e?.message || String(e);
       }
     },
 
@@ -211,12 +164,82 @@ export default {
       this.activity = activity;
     },
 
-    stateOf(id) {
-      return this.activity[id] || 'none';
+    /**
+     * A new chat, optionally about a subject: named for it, opened with its link as the first
+     * message (queued, and read by claude when the pane starts - which is the moment the chats
+     * view shows it), and recorded in the links so the dashboard finds it again.
+     */
+    async createChat(subject = null) {
+      if (this.creating) {
+        return;
+      }
+      this.creating = true;
+      this.starting = subject ? subjectKey(subject.repo, subject.number) : '';
+      this.error = '';
+      try {
+        const title = subject ? chatTitleFor(subject) : nextChatTitle(this.chats.map((c) => c.title));
+        const made = await startConversation(CONVERSATION_WORKSPACE, title, subject ? openingMessage(subject) : '');
+
+        this.chats = [...this.chats, { id: made.id, title: made.title || title, cli: '' }];
+        if (subject) {
+          this.links = await updateLinks((links) => {
+            links[made.id] = { ...(links[made.id] || {}), subject };
+          }).catch((e) => {
+            this.error = `The chat started, but its link to ${ subject.url } was not saved: ${ e?.message || e }`;
+
+            return { ...this.links, [made.id]: { subject } };
+          });
+        }
+        this.go('chat', made.id);
+      } catch (e) {
+        this.error = `A new chat could not be started: ${ e?.message || e }`;
+      } finally {
+        this.creating = false;
+        this.starting = '';
+      }
     },
 
-    stateLabel(id) {
-      return STATE_LABEL[this.stateOf(id)] || '';
+    openChat(id) {
+      this.go('chat', id);
+    },
+
+    async renameChat({ id, title }) {
+      const chat = this.chats.find((c) => c.id === id);
+
+      if (!chat || title === chat.title) {
+        return;
+      }
+      const before = chat.title;
+
+      chat.title = title;
+      try {
+        await renameConversation(CONVERSATION_WORKSPACE, id, title);
+      } catch (e) {
+        chat.title = before;
+        this.error = `The chat could not be renamed: ${ e?.message || e }`;
+      }
+    },
+
+    async closeChat(id) {
+      this.error = '';
+      try {
+        await endConversation(CONVERSATION_WORKSPACE, id);
+        const at = this.chats.findIndex((c) => c.id === id);
+
+        this.chats = this.chats.filter((c) => c.id !== id);
+        if (this.links[id]) {
+          this.links = await updateLinks((links) => {
+            delete links[id];
+          }).catch(() => this.links);
+        }
+        if (this.current === id) {
+          const next = this.chats[Math.min(at, this.chats.length - 1)];
+
+          this.go('chat', next ? next.id : '', true);
+        }
+      } catch (e) {
+        this.error = `The chat could not be closed: ${ e?.message || e }`;
+      }
     },
 
     toRancher() {
@@ -240,6 +263,38 @@ export default {
         <span class="conv__name">Conversation</span>
       </div>
       <nav
+        class="conv__views"
+        aria-label="Views"
+      >
+        <button
+          type="button"
+          class="conv__view"
+          :class="{ 'conv__view--on': view === 'dashboard' }"
+          :aria-current="view === 'dashboard' ? 'page' : null"
+          data-testid="conversation-view-dashboard"
+          @click="go('dashboard')"
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          class="conv__view"
+          :class="{ 'conv__view--on': view === 'chat' }"
+          :aria-current="view === 'chat' ? 'page' : null"
+          data-testid="conversation-view-chat"
+          @click="go('chat', current)"
+        >
+          Chats
+          <span class="conv__count">{{ chats.length }}</span>
+          <span
+            v-if="waiting"
+            class="conv__count conv__count--warn"
+            :title="`${ waiting } waiting for you`"
+          >{{ waiting }}</span>
+        </button>
+      </nav>
+      <div class="conv__spacer" />
+      <nav
         class="conv__modes"
         aria-label="Modes"
       >
@@ -255,12 +310,7 @@ export default {
         >
           Focus
         </router-link>
-        <span
-          class="conv__mode conv__mode--on"
-          aria-current="page"
-        >Conversation</span>
       </nav>
-      <div class="conv__spacer" />
       <button
         type="button"
         class="conv__back"
@@ -271,144 +321,59 @@ export default {
       </button>
     </header>
 
-    <div
-      class="conv__tabs"
-      role="tablist"
-      aria-label="Chats"
-    >
-      <div
-        v-for="chat in chats"
-        :key="chat.id"
-        class="conv__tab"
-        :class="{ 'conv__tab--on': chat.id === current }"
-      >
-        <input
-          v-if="renaming === chat.id"
-          ref="renameInput"
-          v-model="renameText"
-          class="conv__rename"
-          aria-label="Chat name"
-          @keydown.enter.prevent="finishRename"
-          @keydown.esc.prevent="renaming = ''"
-          @blur="finishRename"
-        >
-        <button
-          v-else
-          type="button"
-          role="tab"
-          class="conv__tab-button"
-          :aria-selected="chat.id === current ? 'true' : 'false'"
-          :title="`${ stateLabel(chat.id) } - double-click to rename`"
-          :data-testid="`conversation-tab-${ chat.id }`"
-          @click="select(chat.id)"
-          @dblclick="startRename(chat)"
-        >
-          <span
-            class="conv__dot"
-            :class="`conv__dot--${ stateOf(chat.id) }`"
-            :aria-label="stateLabel(chat.id)"
-          />
-          <span class="conv__title">{{ chat.title }}</span>
-        </button>
-        <template v-if="closing === chat.id">
-          <span class="conv__confirm">Close?</span>
-          <button
-            type="button"
-            class="conv__confirm-yes"
-            :data-testid="`conversation-close-yes-${ chat.id }`"
-            @click="close(chat.id)"
-          >
-            Yes
-          </button>
-          <button
-            type="button"
-            class="conv__confirm-no"
-            @click="closing = ''"
-          >
-            No
-          </button>
-        </template>
-        <button
-          v-else-if="renaming !== chat.id"
-          type="button"
-          class="conv__close"
-          :aria-label="`Close ${ chat.title }`"
-          :data-testid="`conversation-close-${ chat.id }`"
-          @click="closing = chat.id"
-        >
-          <i class="icon icon-close" />
-        </button>
-      </div>
-      <button
-        type="button"
-        class="conv__new"
-        :disabled="creating"
-        data-testid="conversation-new"
-        @click="create"
-      >
-        <AppIcon
-          :name="creating ? 'spinner' : 'plus'"
-          :size="14"
-        />
-        New chat
-      </button>
-    </div>
-
     <p
       v-if="error"
       class="conv__error"
       role="alert"
     >
       {{ error }}
+      <button
+        type="button"
+        class="conv__error-close"
+        aria-label="Dismiss"
+        @click="error = ''"
+      >
+        <i class="icon icon-close" />
+      </button>
     </p>
 
-    <main class="conv__body">
-      <p
-        v-if="loading"
-        class="conv__empty"
-      >
-        Loading your chats…
-      </p>
-      <div
-        v-else-if="!chats.length"
-        class="conv__empty"
-      >
-        <p>No chats yet. Each one works in the interrupt-duty repo, with its memory and tools.</p>
-        <button
-          type="button"
-          class="conv__new conv__new--big"
-          :disabled="creating"
-          @click="create"
-        >
-          <AppIcon
-            :name="creating ? 'spinner' : 'plus'"
-            :size="14"
-          />
-          Start a chat
-        </button>
-      </div>
-      <template
-        v-for="chat in chats"
-        :key="chat.id"
-      >
-        <StudioTerminal
-          v-if="opened[chat.id]"
-          v-show="chat.id === current"
-          class="conv__pane"
-          :session="chat.id"
-          :mode="chat.cli || ''"
-          :command="command(chat)"
-        />
-      </template>
-    </main>
+    <ConversationDashboard
+      v-if="view === 'dashboard'"
+      :chats="chats"
+      :activity="activity"
+      :links="links"
+      :name="firstName"
+      :starting="starting"
+      @open-chat="openChat"
+      @start-chat="createChat"
+      @new-chat="createChat()"
+    />
+    <ConversationChats
+      v-if="chatsShown"
+      v-show="view === 'chat'"
+      :chats="chats"
+      :activity="activity"
+      :links="links"
+      :current="current"
+      :loading="loadingChats"
+      :creating="creating"
+      @select="(id) => go('chat', id, true)"
+      @create="createChat()"
+      @rename="renameChat"
+      @close="closeChat"
+    />
   </div>
 </template>
 
 <style lang="scss" scoped>
-  // The mockup's green, kept to accents so the page reads in Rancher's light and dark themes.
+  // The mockup's greens. `ink` is the dark pine its primary buttons use; in Rancher's dark theme
+  // that would vanish, so there it is the brighter green with dark text on it.
   .conv {
-    --conv-accent: #30ba78;
+    --conv-accent:      #30ba78;
     --conv-accent-text: #1a7a4c;
+    --conv-ink:         #0c322c;
+    --conv-on-ink:      #ffffff;
+    --conv-warn:        #c2410c;
 
     display:        flex;
     flex-direction: column;
@@ -419,6 +384,7 @@ export default {
 
     &__top {
       display:       flex;
+      flex-wrap:     wrap;
       align-items:   center;
       gap:           16px;
       padding:       10px 16px;
@@ -443,30 +409,54 @@ export default {
       color:           #fff;
     }
 
+    &__views,
     &__modes {
       display: flex;
       gap:     4px;
     }
 
+    &__view,
     &__mode {
-      padding:         4px 10px;
-      border-radius:   14px;
+      display:         inline-flex;
+      align-items:     center;
+      gap:             6px;
+      padding:         5px 12px;
+      border:          0;
+      border-radius:   16px;
+      background:      none;
       color:           var(--body-text);
-      text-decoration: none;
+      cursor:          pointer;
       font-size:       13px;
+      text-decoration: none;
 
       &:hover {
-        background: var(--accent-btn, rgba(127, 127, 127, 0.12));
+        background: rgba(127, 127, 127, 0.12);
       }
+    }
 
-      &--on {
-        background:  var(--conv-accent);
-        color:       #fff;
-        font-weight: 600;
+    &__view--on,
+    &__view--on:hover {
+      background:  var(--conv-ink);
+      color:       var(--conv-on-ink);
+      font-weight: 600;
+    }
 
-        &:hover {
-          background: var(--conv-accent);
-        }
+    &__mode {
+      color:     var(--muted, #999);
+      font-size: 12px;
+    }
+
+    &__count {
+      min-width:     18px;
+      padding:       0 5px;
+      border-radius: 9px;
+      background:    rgba(127, 127, 127, 0.2);
+      font-size:     11px;
+      text-align:    center;
+
+      &--warn {
+        background: var(--warning, #f5a623);
+        color:      #1d1d1d;
       }
     }
 
@@ -485,166 +475,31 @@ export default {
       font-size:   13px;
     }
 
-    &__tabs {
-      display:       flex;
-      align-items:   stretch;
-      gap:           2px;
-      padding:       0 12px;
-      border-bottom: 1px solid var(--border);
-      overflow-x:    auto;
-    }
-
-    &__tab {
+    &__error {
       display:       flex;
       align-items:   center;
-      gap:           2px;
-      border-bottom: 2px solid transparent;
-      white-space:   nowrap;
-
-      &--on {
-        border-bottom-color: var(--conv-accent);
-
-        .conv__title {
-          font-weight: 600;
-        }
-      }
+      gap:           8px;
+      margin:        8px 16px 0;
+      padding:       8px 12px;
+      border-radius: 6px;
+      background:    rgba(214, 69, 69, 0.12);
+      color:         var(--error, #d64545);
+      font-size:     13px;
     }
 
-    &__tab-button {
-      display:     flex;
-      align-items: center;
-      gap:         8px;
-      padding:     10px 6px 10px 10px;
+    &__error-close {
+      margin-left: auto;
       border:      0;
       background:  none;
-      color:       var(--body-text);
+      color:       inherit;
       cursor:      pointer;
-      font-size:   13px;
-    }
-
-    &__title {
-      max-width:     220px;
-      overflow:      hidden;
-      text-overflow: ellipsis;
-    }
-
-    &__dot {
-      flex:          0 0 auto;
-      width:         8px;
-      height:        8px;
-      border-radius: 50%;
-      background:    var(--muted, #999);
-      opacity:       0.5;
-
-      &--working {
-        background: var(--conv-accent);
-        opacity:    1;
-        animation:  conv-pulse 1.4s ease-in-out infinite;
-      }
-
-      &--input {
-        background: var(--warning, #f5a623);
-        opacity:    1;
-      }
-
-      &--idle,
-      &--finished {
-        background: var(--conv-accent);
-        opacity:    0.6;
-      }
-    }
-
-    &__rename {
-      margin:    6px;
-      padding:   4px 6px;
-      font-size: 13px;
-      width:     180px;
-    }
-
-    &__close,
-    &__confirm-yes,
-    &__confirm-no {
-      border:     0;
-      background: none;
-      color:      var(--muted, #999);
-      cursor:     pointer;
-      padding:    4px;
-      font-size:  12px;
-
-      &:hover {
-        color: var(--body-text);
-      }
-    }
-
-    &__confirm {
-      font-size: 12px;
-      color:     var(--muted, #999);
-    }
-
-    &__confirm-yes {
-      color: var(--error, #d64545);
-    }
-
-    &__new {
-      display:       flex;
-      align-items:   center;
-      gap:           6px;
-      margin:        6px 0 6px 8px;
-      padding:       4px 12px;
-      border:        1px solid var(--border);
-      border-radius: 6px;
-      background:    none;
-      color:         var(--body-text);
-      cursor:        pointer;
-      font-size:     13px;
-      white-space:   nowrap;
-
-      &:disabled {
-        opacity: 0.6;
-        cursor:  default;
-      }
-
-      &--big {
-        margin:     12px 0 0;
-        padding:    8px 16px;
-        border:     0;
-        background: var(--conv-accent);
-        color:      #fff;
-        font-weight: 600;
-      }
-    }
-
-    &__error {
-      margin:     8px 16px 0;
-      padding:    8px 12px;
-      border-radius: 6px;
-      background: rgba(214, 69, 69, 0.12);
-      color:      var(--error, #d64545);
-      font-size:  13px;
-    }
-
-    &__body {
-      position:       relative;
-      display:        flex;
-      flex:           1 1 auto;
-      flex-direction: column;
-      min-height:     0;
-    }
-
-    &__pane {
-      flex:       1 1 auto;
-      min-height: 0;
-    }
-
-    &__empty {
-      margin:     auto;
-      text-align: center;
-      color:      var(--muted, #999);
     }
   }
 
-  @keyframes conv-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
+  :global(.theme-dark) .conv {
+    --conv-ink:         #30ba78;
+    --conv-on-ink:      #0c1a16;
+    --conv-accent-text: #5fd39b;
+    --conv-warn:        #fb923c;
   }
 </style>

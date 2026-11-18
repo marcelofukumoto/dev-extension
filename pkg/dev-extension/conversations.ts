@@ -36,6 +36,8 @@ import { paneSendScript, paneReadyScript } from './pane-send.mjs';
 import { queuedScript, reportScript } from './agent-reads.mjs';
 import { podStateText, PodStateUnavailable } from './pod-state';
 import { forkScript, forkTitle, FORK_UUID_RE } from './pane-fork.mjs';
+// Conversation mode (marcelofukumoto fork, FORK.md).
+import { CONVERSATION_WORKSPACE, chatCommand, chatStartCommand } from './conversation-mode/config.mjs';
 
 /** Where the agents extension's API is. The agents extension made the agent pod, so this is its cluster. */
 export const STUDIO_CLUSTER = 'local';
@@ -76,6 +78,12 @@ export interface ProjectConversation {
  * tunnel - the wrapper claude runs every command through, which puts it in the workspace's pod.
  */
 export function paneCommand(workspace: string, id: string, mode: SessionMode = 'claude'): string[] {
+  // Conversation mode (marcelofukumoto fork, FORK.md): its chats keep their own repo and tunnel
+  // whichever page opens them - the lte-duty workspace page included.
+  if (workspace === CONVERSATION_WORKSPACE) {
+    return chatCommand(id, mode);
+  }
+
   return [
     '/bin/sh', '/seed/shell.sh', id, workspaceWorkdir(workspace), AGENT_HOME, mode, workspaceShellWrapper(workspace),
   ];
@@ -840,7 +848,8 @@ export async function startPaneDetached(workspace: string, id: string, cli = '')
   // nothing says, and a conversation that has never run has no record - so a detached start is
   // the one place the CLI has to be passed, or a fork of an Antigravity conversation comes back
   // as claude. '' leaves shell.sh's own answer, which is every caller that had one already.
-  const argv = ['/bin/sh', '/seed/shell.sh', id, workspaceWorkdir(workspace), AGENT_HOME, 'start', workspaceShellWrapper(workspace), ...(cli ? [cli] : [])];
+  // Conversation mode (marcelofukumoto fork, FORK.md): the same repo and tunnel as its own page.
+  const argv = workspace === CONVERSATION_WORKSPACE ? chatStartCommand(id, cli) : ['/bin/sh', '/seed/shell.sh', id, workspaceWorkdir(workspace), AGENT_HOME, 'start', workspaceShellWrapper(workspace), ...(cli ? [cli] : [])];
 
   await podExecOnce(api.agent.namespace, pod, api.agent.container, argv, AGENT_BASE);
 }

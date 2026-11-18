@@ -29,11 +29,23 @@ export const CONVERSATION_HOME = '/workspace/.home';
 
 /**
  * The argv a conversation's pane runs in the agent pod: shell.sh with the session id, the
- * working directory, the home, what to run, and the tunnel. `cli` is the conversation's CLI as
- * the registry records it; anything but `agy` runs claude.
+ * working directory, the home, what to run, and the tunnel. `mode` is shell.sh's $4 -
+ * `claude`, `agy` (the conversation is Antigravity's), `shell` or `start`; anything else, the
+ * registry's empty CLI included, runs claude.
  */
-export function chatCommand(id, cli = '') {
-  return ['/bin/sh', '/seed/shell.sh', id, CONVERSATION_REPO, CONVERSATION_HOME, cli === 'agy' ? 'agy' : 'claude', CONVERSATION_SHELL];
+export function chatCommand(id, mode = '') {
+  const run = ['agy', 'shell', 'start'].includes(mode) ? mode : 'claude';
+
+  return ['/bin/sh', '/seed/shell.sh', id, CONVERSATION_REPO, CONVERSATION_HOME, run, CONVERSATION_SHELL];
+}
+
+/**
+ * The argv that starts a conversation's pane detached, with nobody attached: shell.sh in
+ * `start` mode, the tunnel, and which CLI holds it ($6) when that is not claude. What
+ * conversations.ts's startPaneDetached runs for one of these.
+ */
+export function chatStartCommand(id, cli = '') {
+  return [...chatCommand(id, 'start'), ...(cli ? [cli] : [])];
 }
 
 /** The next free "Chat <n>" title, so a new tab never repeats one already in the strip. */

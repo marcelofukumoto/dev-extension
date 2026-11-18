@@ -1029,7 +1029,13 @@ export function useConversation(source: () => ConversationSource) {
 
   /** Start the pane detached, so a conversation opened here first has somewhere to go. */
   async function start(): Promise<void> {
-    const list = shellAt.value >= 0 ? [...argv.value.slice(shellAt.value, shellAt.value + 4), 'start'] : null;
+    // shell.sh's $5 (the tunnel) and $6 (the CLI) carried over (marcelofukumoto fork, FORK.md).
+    // Cut at $4 as this was, a woken workspace conversation started with no
+    // CLAUDE_CODE_SHELL_PREFIX - its commands ran in the agent pod instead of the workspace's -
+    // and shell.sh recorded that argv for every restore after it.
+    const tunnel = shellAt.value >= 0 ? argv.value[shellAt.value + 5] || '' : '';
+    const carried = tunnel || cli.value === 'agy' ? [tunnel, ...(cli.value === 'agy' ? ['agy'] : [])] : [];
+    const list = shellAt.value >= 0 ? [...argv.value.slice(shellAt.value, shellAt.value + 4), 'start', ...carried] : null;
 
     if (!list) {
       throw new Error('this pane cannot be started from here; open the terminal view');
