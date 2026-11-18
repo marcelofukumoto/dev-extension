@@ -343,7 +343,7 @@ test('the rail: my work, my reviews, and the chats about nothing', () => {
   const rail = railSections(chats, links, work, { 'p-lte-duty-2': 'input', 'p-lte-duty-5': 'working' });
   const by = Object.fromEntries(rail.map((s) => [s.id, s.items]));
 
-  assert.deepEqual(rail.map((s) => s.id), ['developer', 'reviewer', 'other', 'done']);
+  assert.deepEqual(rail.map((s) => s.id), ['developer', 'reviewer', 'other', 'quiet', 'done']);
   assert.deepEqual(by.developer.map((i) => `${ i.ref }:${ i.chatIds.length }:${ i.activity }`), ['dashboard#10:2:input', 'dashboard#30:1:none']);
   assert.equal(by.developer[0].status.text, '2 checks failing');
   assert.equal(by.developer[1].status.text, 'Assigned · v2.17.0');
@@ -714,4 +714,22 @@ test('the Description check names the unticked checklist box', async() => {
     },
     unchecked: uncheckedBoxes(body).slice(0, 1),
   }), 'Failing: Description · Unticked: "The PR has reviewed with UX and tested in light and dark mode, or there are no UX changes"');
+});
+
+test('nothing to do: a marked item goes to the rail\'s Nothing to do section until it changes', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const { railSections } = await import('../conversation-mode/rail.mjs');
+  const pr = {
+    repo: 'rancher/rancher-ai-ui', number: 256, title: 'e2e', url: 'u', author: 'torchiaf', reviewRequested: true, draft: true, updatedAt: '2026-08-07T10:00:00Z',
+  };
+  const work = { login: 'me', mine: [], reviewing: [pr], issues: [] };
+  const chats = [{ id: 'p-1', title: 'rancher-ai-ui#256' }];
+  const links = { 'p-1': { subject: { repo: 'rancher/rancher-ai-ui', number: 256, kind: 'pr' } } };
+  const rows = () => N.withQuestionStamps(attentionRows(work, chats, {}, links), {});
+  const doc = N.mark(N.emptyMarks(), rows()[0], 'Draft - not ready for review yet');
+  const where = () => railSections(chats, links, work, {}, N.quietKeys(rows(), doc)).find((s) => s.items.length).id;
+
+  assert.equal(where(), 'quiet');
+  pr.updatedAt = '2026-11-18T19:00:00Z';
+  assert.equal(where(), 'reviewer');
 });

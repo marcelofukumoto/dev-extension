@@ -25,13 +25,15 @@ import {
 import { CONVERSATION_ROUTE } from './routes';
 import { CONVERSATION_WORKSPACE, nextChatTitle } from './config.mjs';
 import {
-  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage
+  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage, attentionRows
 } from './projects.mjs';
 import {
   extractUrls, githubRef, titleFromMessage, isDefaultTitle, chatLinks
 } from './linkify.mjs';
 import { readLinks, updateLinks } from './links';
 import { readTranscripts } from './transcripts';
+import { readMarks } from './marks';
+import { emptyMarks, withQuestionStamps, quietKeys } from './nothing-to-do.mjs';
 import { myWork, pullRequest, issuesByNumber } from '../github';
 import { fetchWork, requestRefresh, listenForWork } from './work-client';
 
@@ -43,6 +45,9 @@ const DECIDED_STATES = new Set(['working', 'input', 'idle', 'finished']);
 
 /** How often the transcripts are read: the links bar and the chats' names come from them. */
 const TRANSCRIPT_POLL_MS = 20000;
+
+/** How often the "Nothing to do" marks are read again, for one made in another browser or by an agent. */
+const MARKS_POLL_MS = 60000;
 
 /** ...and how often while a chat is working, so what it is doing (the dashboard says) keeps up. */
 const TRANSCRIPT_BUSY_MS = 8000;
@@ -100,6 +105,8 @@ export default {
       /** What each chat's transcript says (transcripts.ts): its first message, its links, what it is doing. */
       transcripts:  {},
       transcriptsAt: 0,
+      /** "Nothing to do" (nothing-to-do.mjs, marks.ts): the dashboard marks, the rail sets aside. */
+      marks:        emptyMarks(),
       /** Chats this page has already tried to name, so a failed rename is not retried every poll. */
       titled:       {},
       /**
@@ -119,6 +126,8 @@ export default {
     await Promise.all([this.loadChats(), this.loadLinks()]);
     this.poll = setInterval(() => this.refreshStates(), STATE_POLL_MS);
     this.transcriptPoll = setInterval(() => this.pollTranscripts(), TRANSCRIPT_BUSY_MS);
+    this.loadMarks();
+    this.marksPoll = setInterval(() => this.loadMarks(), MARKS_POLL_MS);
     this.refreshStates();
     this.refreshTranscripts();
     this.startWork();
@@ -127,6 +136,7 @@ export default {
   beforeUnmount() {
     clearInterval(this.poll);
     clearInterval(this.transcriptPoll);
+    clearInterval(this.marksPoll);
     clearInterval(this.workPoll);
     clearTimeout(this.workSoon);
     this.workListener?.close();
@@ -167,6 +177,11 @@ export default {
     },
 
     /** Each chat's links, as the links bar shows them (linkify.mjs). */
+    /** The keys of the rows marked "Nothing to do" that still hold; their rail items go aside. */
+    quietKeys() {
+      return quietKeys(withQuestionStamps(attentionRows(this.work, this.chats, this.activity, this.links), this.transcripts), this.marks);
+    },
+
     chatLinksById() {
       const out = {};
 
@@ -428,6 +443,14 @@ export default {
     },
 
     /* ── Transcripts: links and names ─────────────────────────────────────────────────────── */
+
+    async loadMarks() {
+      try {
+        this.marks = await readMarks();
+      } catch {
+        // Not readable now (a restart, a blip): everything shows as it would unmarked.
+      }
+    },
 
     /** Every poll while a chat is working; otherwise every TRANSCRIPT_POLL_MS. */
     pollTranscripts() {
@@ -710,6 +733,7 @@ export default {
       :activity="activity"
       :links="links"
       :transcripts="transcripts"
+      :marks="marks"
       :name="firstName"
       :starting="starting"
       :work="work"
@@ -722,6 +746,7 @@ export default {
       @new-chat="createChat()"
       @reload="refreshWork('refresh button')"
       @archive="archiveChats"
+      @marks="(doc) => marks = doc"
       @view-chats="go('chat', current)"
     />
     <ConversationBrowser
@@ -742,6 +767,7 @@ export default {
       :activity="activity"
       :links="links"
       :chat-links="chatLinksById"
+      :quiet-keys="quietKeys"
       :work="work"
       :current="current"
       :loading="loadingChats"

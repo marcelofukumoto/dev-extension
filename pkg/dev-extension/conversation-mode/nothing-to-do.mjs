@@ -40,6 +40,16 @@ export function questionStamp(transcript) {
   return `question|${ transcript?.now?.at || '' }`;
 }
 
+/** attentionRows()'s rows with each question's stamp filled in from its transcript. */
+export function withQuestionStamps(rows, transcripts = {}) {
+  return rows.map((r) => (r.kind === 'question' ? { ...r, stamp: questionStamp(transcripts[r.chatId]) } : r));
+}
+
+/** The keys of the rows marked "Nothing to do" that still hold: the rail puts their items aside. */
+export function quietKeys(rows, doc) {
+  return new Set(rows.filter((r) => isQuiet(r, doc)).map((r) => r.key));
+}
+
 /** Whether a row is marked "Nothing to do" and nothing has happened to it since. */
 export function isQuiet(row, doc) {
   const mark = doc?.marks?.[row.key];

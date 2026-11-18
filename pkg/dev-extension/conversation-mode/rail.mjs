@@ -17,6 +17,8 @@ export const SECTIONS = [
   { id: 'developer', label: 'Developer' },
   { id: 'reviewer', label: 'Reviewer' },
   { id: 'other', label: 'Other' },
+  // Marked "Nothing to do" on the dashboard, and nothing has happened to it since (nothing-to-do.mjs).
+  { id: 'quiet', label: 'Nothing to do' },
   // What is over: a pull request merged or closed, an issue no longer yours, chats archived by hand.
   { id: 'done', label: 'Done' },
 ];
@@ -128,8 +130,9 @@ function reviewerStatus(it) {
  * @param {object} links     chat id -> { subject }
  * @param {object} work      myWork()'s answer, merged
  * @param {object} activity  chat id -> agent state
+ * @param {Set}    quiet     the keys marked "Nothing to do" that still hold (nothing-to-do.mjs, quietKeys)
  */
-export function railSections(chats = [], links = {}, work = {}, activity = {}) {
+export function railSections(chats = [], links = {}, work = {}, activity = {}, quiet = new Set()) {
   const index = indexWork(work);
   // Before GitHub has answered once, nothing is "over": every subject would look closed.
   const loaded = !!work.login;
@@ -167,7 +170,7 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}) {
       ...item,
       finished,
       archived,
-      section: finished ? 'done' : item.section,
+      section: finished ? 'done' : (quiet.has(item.key) ? 'quiet' : item.section),
       role:    item.section,
       activity: Object.keys(URGENCY).find((k) => URGENCY[k] === urgency) || 'none',
       status:   archived ? { text: 'Archived', tone: '', stage: statusOf(item.section, item.subject, found).stage } : statusOf(item.section, item.subject, found, item.chatIds.length > 0),

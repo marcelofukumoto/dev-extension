@@ -14,6 +14,7 @@
 import StudioTerminal from '../components/StudioTerminal.vue';
 import StageSteps from '../components/StageSteps.vue';
 import AppIcon from '../components/focus/AppIcon.vue';
+import ClaudeUsage from './ClaudeUsage.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import { chatCommand } from './config.mjs';
 import { railSections, filterRail } from './rail.mjs';
@@ -31,13 +32,15 @@ const STATE_LABEL = {
 };
 
 const SECTION_ICON = {
-  developer: 'pencil', reviewer: 'check', other: 'comment', done: 'clock'
+  developer: 'pencil', reviewer: 'check', other: 'comment', quiet: 'snooze', done: 'clock'
 };
 
 export default {
   name: 'ConversationChats',
 
-  components: { StudioTerminal, StageSteps, AppIcon },
+  components: {
+    StudioTerminal, StageSteps, AppIcon, ClaudeUsage
+  },
 
   emits: ['select', 'create', 'rename', 'close', 'archive'],
 
@@ -50,6 +53,8 @@ export default {
     /** GitHub as myWork() answers it: where each item stands. */
     work:      { type: Object, default: () => ({}) },
     current:   { type: String, default: '' },
+    /** The keys marked "Nothing to do" that still hold (nothing-to-do.mjs): their items go aside. */
+    quietKeys: { type: Set, default: () => new Set() },
     loading:   { type: Boolean, default: false },
     creating:  { type: Boolean, default: false },
   },
@@ -73,7 +78,7 @@ export default {
     LINKS_SHOWN: () => LINKS_SHOWN,
 
     sections() {
-      return railSections(this.chats, this.links, this.work, this.activity);
+      return railSections(this.chats, this.links, this.work, this.activity, this.quietKeys);
     },
 
     shownSections() {
@@ -311,6 +316,7 @@ export default {
       >
         No chats yet. Start one with +, or from a pull request on the dashboard.
       </p>
+      <ClaudeUsage class="chats__usage" />
     </aside>
 
     <div class="chats__main">
@@ -528,6 +534,16 @@ export default {
       overflow-y:     auto;
       border-right:   1px solid var(--conv-line);
       background:     var(--conv-surface);
+    }
+
+    // The plan's usage, held at the foot of the rail however long the list is.
+    &__usage {
+      position:    sticky;
+      bottom:      -10px;
+      margin:      auto -8px -10px;
+      padding:     10px 12px 12px;
+      border-top:  1px solid var(--conv-line);
+      background:  var(--conv-surface);
     }
 
     &__find {
