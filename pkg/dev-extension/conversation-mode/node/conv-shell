@@ -1,0 +1,49 @@
+#!/bin/sh
+# Conversation mode's command tunnel (CLAUDE_CODE_SHELL_PREFIX), from marcelofukumoto/dev-extension.
+#
+# The same shape as a workspace's bin/dev-shell, which claude in the agent pod runs every command
+# through to land it in a workspace's pod. Three differences, and they are why this is not that
+# file: the repo lives in /workspaces/.conversation, outside any workspace tree (Cody's layout step
+# rewrites .claude/skills inside one), so the working directory is kept when it is under
+# /workspaces/.conversation instead of being reset to the workspace's checkout; our tools are on
+# PATH; and our .env is loaded on top of the workspace's.
+#
+# The .env is the one Secret, dev-system/conversation-env (key `.env`). It is copied into the repo
+# (gitignored, mode 600) at most once a minute, so editing the Secret reaches the next command.
+#
+# gh: the workspace's own GH_TOKEN is the token of whoever provisioned it, and lte-duty was
+# provisioned by the local admin, who has none - so GH_TOKEN falls back to the .env's
+# GH_TOKEN_DEV_EXTENSION, Marcelo's own token (the one dev-extension uses for him).
+NS=dev-lte-duty
+WS=/workspaces/lte-duty
+C=/workspaces/.conversation
+REPO=$C/rancher-interrupt-duty
+PATH=/workspace/.home/.local/bin:/usr/local/bin:$PATH
+export PATH
+KUBECONFIG=/dev/null
+export KUBECONFIG
+
+case "$1" in
+  *"/seed/chat-hook.mjs"*|*"/seed/claude-credentials.mjs"*) exec /bin/sh -c "$1" ;;
+esac
+
+STAMP=$C/.env-synced
+if [ -z "$(find "$STAMP" -mmin -1 2>/dev/null)" ]; then
+  if kubectl -n dev-system get secret conversation-env -o jsonpath='{.data.\.env}' 2>/dev/null | base64 -d > "$REPO/.env.new" 2>/dev/null && [ -s "$REPO/.env.new" ]; then
+    chmod 600 "$REPO/.env.new" && mv "$REPO/.env.new" "$REPO/.env"
+  else
+    rm -f "$REPO/.env.new"
+  fi
+  touch "$STAMP"
+fi
+
+DIR=$(pwd)
+case "$DIR" in
+  "$C"|"$C"/*|"$WS"|"$WS"/*) ;;
+  *) DIR=$REPO ;;
+esac
+
+exec kubectl exec -i -n "$NS" "deploy/$NS" -c workspace -- \
+  setpriv --reuid=1000 --regid=1000 --init-groups \
+  /usr/bin/env HOME="$C/.home" WSD="$WS" C="$C" REPO="$REPO" DIR="$DIR" \
+  /bin/bash -lc 'cd "$DIR" 2>/dev/null || cd "$REPO" || exit 1; PATH="$C/bin:$WSD/bin:$PATH"; set -a; [ -f "$WSD/.env" ] && . "$WSD/.env"; [ -f "$REPO/.env" ] && . "$REPO/.env"; set +a; [ -n "$GH_TOKEN" ] || export GH_TOKEN="$GH_TOKEN_DEV_EXTENSION" GITHUB_TOKEN="$GH_TOKEN_DEV_EXTENSION"; eval "$1"' bash "$1"

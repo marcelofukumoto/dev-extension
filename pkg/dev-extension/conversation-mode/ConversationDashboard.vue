@@ -14,6 +14,16 @@ import {
 /** GitHub again every five minutes while the dashboard is open. */
 const REFRESH_MS = 5 * 60 * 1000;
 
+/** What is asked of GitHub per product, one query each: see load(). */
+const SECTIONS = [
+  { label: 'pull requests', sections: ['mine'] },
+  { label: 'reviews', sections: ['reviewing'] },
+  { label: 'issues', sections: ['issues'] },
+];
+
+/** GitHub queries in flight at once. */
+const CONCURRENCY = 3;
+
 const KIND_LABEL = {
   question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', ready: 'Ready'
 };
@@ -144,16 +154,47 @@ export default {
   },
 
   methods: {
+    /**
+     * One question per product and per section, three at a time.
+     *
+     * myWork() with every section is one GraphQL query of four searches, and GitHub gives a query
+     * ten seconds: for Rancher and Harvester that one query answered 502/504 after 10-11s, while
+     * each section on its own answers in one to three. Three at a time keeps clear of GitHub's
+     * limit on concurrent requests, and a 502/504 is asked once more before it is shown.
+     */
     async load() {
       this.loading = true;
-      const settled = await Promise.allSettled(PROJECTS.map((p) => myWork(p.repos, [], ['reviewing', 'mine', 'issues'])));
+      const jobs = PROJECTS.flatMap((p) => SECTIONS.map((s) => ({ p, s })));
+      const settled = new Array(jobs.length);
+      let next = 0;
+      const ask = async({ p, s }) => {
+        try {
+          return await myWork(p.repos, [], s.sections);
+        } catch (e) {
+          if (!/ 50[234]\b/.test(e?.message || '')) {
+            throw e;
+          }
+          await new Promise((done) => setTimeout(done, 1500));
+
+          return myWork(p.repos, [], s.sections);
+        }
+      };
+
+      await Promise.all(Array.from({ length: CONCURRENCY }, async() => {
+        while (next < jobs.length) {
+          const at = next++;
+
+          settled[at] = await ask(jobs[at]).then((value) => ({ value }), (reason) => ({ reason }));
+        }
+      }));
 
       this.errors = settled
-        .map((r, i) => (r.status === 'rejected' ? `${ PROJECTS[i].name }: ${ r.reason?.message || r.reason }` : ''))
+        .map((r, i) => (r.reason ? `${ jobs[i].p.name } ${ jobs[i].s.label }: ${ r.reason?.message || r.reason }` : ''))
         .filter(Boolean);
-      // A group that failed keeps what it last showed rather than emptying the page.
-      const answers = settled.map((r) => (r.status === 'fulfilled' ? r.value : null));
+      const answers = settled.map((r) => r.value || null);
 
+      // Something that failed keeps nothing rather than the whole page emptying: what did answer
+      // is shown, and the errors say what is missing.
       if (answers.some(Boolean)) {
         this.work = mergeWork(answers);
         this.loadedAt = Date.now();
