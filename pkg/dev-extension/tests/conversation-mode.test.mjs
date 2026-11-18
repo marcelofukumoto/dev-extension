@@ -264,7 +264,9 @@ const prNode = (o = {}) => ({
 });
 
 test('a pull request comes out in the shape the dashboard draws', () => {
-  assert.deepEqual(checksOf(prNode()), { state: 'FAILURE', failing: 2, pending: 1, total: 4 });
+  assert.deepEqual(checksOf(prNode()), {
+    state: 'FAILURE', failing: 2, pending: 1, total: 4, failingNames: ['a check', 'a status']
+  });
   const pr = shapePr(prNode({ latestOpinionatedReviews: { nodes: [{ state: 'APPROVED' }] } }), 'me', true);
 
   assert.equal(pr.key, 'a/b#7');
@@ -340,16 +342,25 @@ test('the rail: my work, my reviews, and the chats about nothing', () => {
   const rail = railSections(chats, links, work, { 'p-lte-duty-2': 'input', 'p-lte-duty-5': 'working' });
   const by = Object.fromEntries(rail.map((s) => [s.id, s.items]));
 
-  assert.deepEqual(rail.map((s) => s.id), ['developer', 'reviewer', 'other']);
-  assert.deepEqual(by.developer.map((i) => `${ i.ref }:${ i.chatIds.length }:${ i.activity }`), ['dashboard#10:2:input', 'dashboard#30:1:none', 'old#7:1:none']);
+  assert.deepEqual(rail.map((s) => s.id), ['developer', 'reviewer', 'other', 'done']);
+  assert.deepEqual(by.developer.map((i) => `${ i.ref }:${ i.chatIds.length }:${ i.activity }`), ['dashboard#10:2:input', 'dashboard#30:1:none']);
   assert.equal(by.developer[0].status.text, '2 checks failing');
   assert.equal(by.developer[1].status.text, 'Assigned · v2.17.0');
-  assert.equal(by.developer[2].status.text, 'Closed or merged');
+  // A pull request GitHub no longer lists as open is over, and keeps the role it had.
+  assert.deepEqual(by.done.map((i) => `${ i.ref }:${ i.role }:${ i.status.text }`), ['old#7:developer:Closed or merged']);
   assert.deepEqual(by.reviewer.map((i) => `${ i.ref }:${ i.status.text }:${ i.status.stage }`), ['harvester-ui-extension#20:Your review:0']);
   assert.deepEqual(by.other.map((i) => `${ i.title }:${ i.activity }`), ['What is on fire today:working']);
   assert.equal(filterRail(rail, 'review')[1].items.length, 1);
   assert.equal(filterRail(rail, 'fire')[2].items.length, 1);
   assert.equal(filterRail(rail, 'fire')[0].items.length, 0);
+
+  // Before GitHub answers, nothing is over; a cleared chat about nothing is.
+  const early = railSections(chats, links, {}, {});
+
+  assert.equal(early.find((s) => s.id === 'done').items.length, 0);
+  const cleared = railSections(chats, { ...links, 'p-lte-duty-5': { cleared: true } }, work, {});
+
+  assert.deepEqual(cleared.find((s) => s.id === 'done').items.map((i) => i.title).sort(), ['What is on fire today', 'old#7'].sort());
 });
 
 test('a subject\'s section: GitHub first, then what was recorded, then its kind', () => {
@@ -360,4 +371,66 @@ test('a subject\'s section: GitHub first, then what was recorded, then its kind'
   assert.equal(sectionOf({ kind: 'pr' }, null), 'reviewer');
   assert.equal(statusOf('reviewer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewedAt: '2026-11-17T00:00:00Z', pushedAt: '2026-11-18T00:00:00Z' }) }).text, 'Pushed since your review');
   assert.equal(statusOf('developer', { kind: 'pr' }, { kind: 'pr', item: pr({ number: 1, reviewDecision: 'CHANGES_REQUESTED' }) }).stage, 4);
+});
+
+// ── software projects ─────────────────────────────────────────────────────────────────────────
+import { CARDS, versionOf, nextMilestone, cardSummary } from '../conversation-mode/projects.mjs';
+
+test('the next release is the lowest version with work open in it', () => {
+  assert.deepEqual(versionOf('v2.16.0'), [2, 16, 0]);
+  assert.deepEqual(versionOf('1.2.0'), [1, 2, 0]);
+  assert.equal(versionOf('Planning'), null);
+  assert.equal(versionOf('re-v0.1.1'), null);
+  assert.deepEqual(nextMilestone([
+    { title: 'v2.17.0', open: 493, closed: 10 }, { title: 'v2.12.15', open: 0, closed: 4 }, { title: 'v2.16.0', open: 16, closed: 300 }, { title: 'Planning', open: 879, closed: 0 },
+  ]), { title: 'v2.16.0', open: 16, closed: 300 });
+  assert.equal(nextMilestone([{ title: 'Backlog', open: 3 }]), null);
+});
+
+test('a card counts what needs you and the chats on its repository', () => {
+  const card = CARDS.find((c) => c.id === 'harvester-ui');
+  const attention = [
+    { subject: { repo: 'harvester/harvester-ui-extension', number: 1, kind: 'pr' } },
+    { subject: { repo: 'harvester/harvester', number: 2, kind: 'issue' } },
+    { subject: { repo: 'rancher/dashboard', number: 3, kind: 'pr' } },
+    { subject: null },
+  ];
+  const s = cardSummary(card, { build: 'passing', milestones: [{ title: 'v1.11.0', open: 12, closed: 3 }], bugs: 73 }, attention, [{ id: 'a' }, { id: 'b' }], { a: { subject: { repo: 'harvester/harvester-ui-extension' } } });
+
+  assert.equal(s.needYou, 2);
+  assert.equal(s.tasks, 1);
+  assert.equal(s.release.title, 'v1.11.0');
+  assert.equal(s.bugs, 73);
+  assert.equal(cardSummary(card).known, false);
+});
+
+test('a project card\'s query and answer', async() => {
+  const { projectQuery, shapeProject } = await import('../conversation-mode/server/github.mjs');
+  const card = CARDS.find((c) => c.id === 'harvester-ui');
+  const q = projectQuery(card);
+
+  assert.ok(q.includes('code: repository(owner: "harvester", name: "harvester-ui-extension")'));
+  assert.ok(q.includes('tracker: repository(owner: "harvester", name: "harvester")'));
+  assert.ok(q.includes('labels: ["area/ui"]'));
+  assert.ok(q.includes('repo:harvester/harvester is:issue is:open label:kind/bug label:area/ui'));
+  assert.ok(!projectQuery(CARDS[0]).includes('labels: ['));
+  assert.deepEqual(shapeProject(card, {
+    code: { defaultBranchRef: { target: { statusCheckRollup: { state: 'FAILURE' } } } }, tracker: { milestones: { nodes: [{ title: 'v1.11.0', url: 'u', open: { totalCount: 12 }, closed: { totalCount: 3 } }] } }, bugs: { issueCount: 73 }
+  }), { id: 'harvester-ui', build: 'failing', milestones: [{ title: 'v1.11.0', url: 'u', open: 12, closed: 3 }], bugs: 73 });
+});
+
+test('why a pull request is blocked: who asked for changes and what, which checks fail', async() => {
+  const { blockedReason } = await import('../conversation-mode/projects.mjs');
+  const { shapePr: shape } = await import('../conversation-mode/server/github.mjs');
+  const node = prNode({
+    reviewDecision: 'CHANGES_REQUESTED',
+    latestOpinionatedReviews: { nodes: [{ state: 'CHANGES_REQUESTED', author: { login: 'nwmac' }, body: '\n  Please keep the existing masthead.\nMore text.' }] },
+  });
+  node.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[1].name = 'e2e-test (chrome)';
+  node.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[3].context = 'lint';
+  const p = shape(node, 'me');
+
+  assert.deepEqual(p.checks.failingNames, ['e2e-test (chrome)', 'lint']);
+  assert.equal(blockedReason(p), 'Changes requested by @nwmac: "Please keep the existing masthead." · Failing: e2e-test (chrome), lint');
+  assert.equal(blockedReason(pr({ number: 1, checks: { failing: 1, pending: 0, total: 3 } })), '1 check failing');
 });

@@ -13,9 +13,9 @@ const PR_FIELDS = `
   author { login }
   repository { nameWithOwner }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state contexts(first: 60) { nodes {
-    __typename ... on CheckRun { status conclusion } ... on StatusContext { state }
+    __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state }
   } } } } } }
-  latestOpinionatedReviews(first: 10) { nodes { state } }
+  latestOpinionatedReviews(first: 10) { nodes { state body author { login } } }
   reviews(last: 30) { nodes { author { login } submittedAt } }
 `;
 
@@ -52,11 +52,11 @@ export function sectionQuery(repos, section) {
   return `query { viewer { login } ${ Object.entries(searches).map(([alias, q]) => `${ alias }: search(query: ${ JSON.stringify(q) }, type: ISSUE, first: ${ first }) { nodes { ${ fields } } }`).join(' ') } }`;
 }
 
-/** What a pull request's checks add up to: failing, pending, total. */
+/** What a pull request's checks add up to: failing, pending, total, and which ones fail. */
 export function checksOf(node) {
   const rollup = node?.commits?.nodes?.[0]?.commit?.statusCheckRollup;
   const contexts = rollup?.contexts?.nodes || [];
-  let failing = 0;
+  const failed = [];
   let pending = 0;
 
   for (const c of contexts) {
@@ -64,11 +64,11 @@ export function checksOf(node) {
       if (c.status !== 'COMPLETED') {
         pending++;
       } else if (FAILED_RUN.has(c.conclusion)) {
-        failing++;
+        failed.push(c.name || 'a check');
       }
     } else if (c.__typename === 'StatusContext') {
       if (FAILED_STATUS.has(c.state)) {
-        failing++;
+        failed.push(c.context || 'a status');
       } else if (c.state === 'PENDING' || c.state === 'EXPECTED') {
         pending++;
       }
@@ -76,7 +76,7 @@ export function checksOf(node) {
   }
 
   return rollup ? {
-    state: rollup.state || '', failing, pending, total: contexts.length
+    state: rollup.state || '', failing: failed.length, pending, total: contexts.length, failingNames: [...new Set(failed)].slice(0, 6)
   } : null;
 }
 
@@ -85,7 +85,12 @@ export function shapePr(node, login, reviewRequested = false) {
   const repo = node.repository?.nameWithOwner || '';
   const mine = (node.reviews?.nodes || []).filter((r) => r?.author?.login === login && r.submittedAt);
   const reviewedAt = mine.length ? mine[mine.length - 1].submittedAt : '';
-  const approved = node.reviewDecision === 'APPROVED' || (node.latestOpinionatedReviews?.nodes || []).some((r) => r.state === 'APPROVED');
+  const opinions = node.latestOpinionatedReviews?.nodes || [];
+  const approved = node.reviewDecision === 'APPROVED' || opinions.some((r) => r.state === 'APPROVED');
+  // Who is holding it, and the first thing they said: the reason a "changes requested" is blocked.
+  const changesBy = opinions.filter((r) => r.state === 'CHANGES_REQUESTED').map((r) => ({
+    login: r.author?.login || '', said: String(r.body || '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 160) || ''
+  }));
 
   return {
     key:            `${ repo }#${ node.number }`,
@@ -102,6 +107,7 @@ export function shapePr(node, login, reviewRequested = false) {
     pushedAt:       node.commits?.nodes?.[0]?.commit?.committedDate || '',
     reviewedAt,
     reviewRequested,
+    changesBy,
   };
 }
 
@@ -167,4 +173,48 @@ export async function askGithub(token, query, fetchImpl = fetch) {
   }
 
   return body.data;
+}
+
+// ── Software projects ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * One query per card (projects.mjs, CARDS): the default branch's checks, the open milestones of
+ * the repository its issues live in with how much of the card's own work is open and closed in
+ * each (narrowed by its `ui` label when its product shares the repository), and its open bugs.
+ */
+export function projectQuery(card) {
+  const [owner, name] = card.repo.split('/');
+  const [iOwner, iName] = card.issues.split('/');
+  const labels = card.ui ? `, labels: [${ JSON.stringify(card.ui) }]` : '';
+  const bugs = `repo:${ card.issues } is:issue is:open ${ card.bugs.map((l) => `label:${ JSON.stringify(l).slice(1, -1).includes(' ') ? JSON.stringify(l) : l }`).join(' ') }`;
+
+  return `query {
+    code: repository(owner: ${ JSON.stringify(owner) }, name: ${ JSON.stringify(name) }) {
+      defaultBranchRef { target { ... on Commit { statusCheckRollup { state } } } }
+    }
+    tracker: repository(owner: ${ JSON.stringify(iOwner) }, name: ${ JSON.stringify(iName) }) {
+      milestones(states: OPEN, first: 40, orderBy: { field: CREATED_AT, direction: DESC }) { nodes {
+        title url
+        open: issues(states: OPEN${ labels }) { totalCount }
+        closed: issues(states: CLOSED${ labels }) { totalCount }
+      } }
+    }
+    bugs: search(query: ${ JSON.stringify(bugs) }, type: ISSUE, first: 1) { issueCount }
+  }`;
+}
+
+const BUILD = {
+  SUCCESS: 'passing', FAILURE: 'failing', ERROR: 'failing', PENDING: 'running', EXPECTED: 'running'
+};
+
+/** A card's answer: `{ id, build, milestones: [{ title, url, open, closed }], bugs }`. */
+export function shapeProject(card, data) {
+  return {
+    id:         card.id,
+    build:      BUILD[data?.code?.defaultBranchRef?.target?.statusCheckRollup?.state] || '',
+    milestones: (data?.tracker?.milestones?.nodes || []).map((m) => ({
+      title: m.title, url: m.url, open: m.open?.totalCount || 0, closed: m.closed?.totalCount || 0
+    })),
+    bugs: data?.bugs?.issueCount ?? null,
+  };
 }

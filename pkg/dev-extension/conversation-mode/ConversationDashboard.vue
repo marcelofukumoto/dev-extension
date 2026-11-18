@@ -6,9 +6,11 @@
 // the chats, what each agent is doing and which chat is about which pull request. Every row that has a
 // chat opens it; every row that has none can start one, named for it and opened with its link.
 import AppIcon from '../components/focus/AppIcon.vue';
+import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
-  PROJECTS, attentionRows, chatsBySubject, subjectKey, subjectOf, shortRef, checksState, reviewState, pushedSinceReview, projectOf, ago, greeting
+  CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
+import { railSections } from './rail.mjs';
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
@@ -34,7 +36,7 @@ export default {
 
   components: { AppIcon },
 
-  emits: ['open-chat', 'start-chat', 'new-chat', 'reload'],
+  emits: ['open-chat', 'start-chat', 'new-chat', 'reload', 'clear-chat', 'view-chats'],
 
   props: {
     chats:    { type: Array, default: () => [] },
@@ -46,14 +48,14 @@ export default {
     errors:   { type: Array, default: () => [] },
     loading:  { type: Boolean, default: false },
     loadedAt: { type: Number, default: 0 },
+    /** The software project cards' data from conversation-api (server/github.mjs, shapeProject). */
+    projects: { type: Array, default: () => [] },
   },
 
   data() {
     return {
       now:       Date.now(),
       filter:    'all',
-      prTab:     'mine',
-      issuesAll: false,
       attentionAll: false,
     };
   },
@@ -122,20 +124,35 @@ export default {
       ];
     },
 
-    prLists() {
-      return {
-        mine:      this.work.mine,
-        requested: this.work.reviewing.filter((p) => p.reviewRequested),
-        reviewed:  this.work.reviewing.filter((p) => !p.reviewRequested),
-      };
+
+    /**
+     * Your agent team at work: every issue and pull request a chat is on, and the chats about
+     * nothing, as the rail groups them (rail.mjs) - what is over (merged, closed, cleared) left out.
+     */
+    team() {
+      return railSections(this.chats, this.links, this.work, this.activity)
+        .filter((s) => s.id !== 'done')
+        .flatMap((s) => s.items);
     },
 
-    prGroups() {
-      return this.byProject(this.prLists[this.prTab] || []);
+    teamSummary() {
+      const working = this.team.filter((i) => i.activity === 'working').length;
+      const waiting = this.team.filter((i) => i.activity === 'input').length;
+      const chats = this.team.reduce((n, i) => n + i.chatIds.length, 0);
+
+      return [`${ this.team.length } item${ this.team.length === 1 ? '' : 's' }`, `${ chats } chat${ chats === 1 ? '' : 's' }`, working ? `${ working } working` : '', waiting ? `${ waiting } waiting on you` : ''].filter(Boolean).join(' · ');
     },
 
-    issueGroups() {
-      return this.byProject(this.work.issues, this.issuesAll ? Infinity : 6);
+    /** The software project cards: what the server found, with what needs you and what the chats do there. */
+    cards() {
+      return CARDS.map((card) => cardSummary(card, this.projects.find((p) => p.id === card.id), this.attention, this.chats, this.links))
+        .sort((a, b) => b.needYou - a.needYou);
+    },
+
+    milestones() {
+      return this.cards.filter((c) => c.release).map((c) => ({
+        ...c.release, name: c.name, initials: c.initials, done: Math.round(100 * c.release.closed / Math.max(1, c.release.open + c.release.closed))
+      }));
     },
 
     updated() {
@@ -145,16 +162,6 @@ export default {
 
   methods: {
 
-    byProject(list, cap = Infinity) {
-      return PROJECTS.map((p) => {
-        const items = list.filter((x) => projectOf(x.repo) === p.id)
-          .sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
-
-        return {
-          id: p.id, name: p.name, items: items.slice(0, cap), more: Math.max(0, items.length - cap)
-        };
-      }).filter((g) => g.items.length);
-    },
 
     refOf(item) {
       return shortRef(item.repo, item.number);
@@ -186,17 +193,6 @@ export default {
       return s ? shortRef(s.repo, s.number) : '';
     },
 
-    /** Open the item's chat, or start one: about it, and recorded as yours or as a review. */
-    chatButton(item, kind = 'pr') {
-      const id = this.chatOf(item);
-      const role = kind === 'issue' || this.prTab === 'mine' ? 'developer' : 'reviewer';
-
-      if (id) {
-        this.$emit('open-chat', id);
-      } else {
-        this.$emit('start-chat', { ...subjectOf(item, kind), role });
-      }
-    },
 
     rowChat(row) {
       if (row.chatId) {
@@ -211,6 +207,46 @@ export default {
     },
 
     kindLabel: (k) => KIND_LABEL[k] || k,
+
+    /** The stage strip of a team row: the Dev product's steps for a fix or a review. */
+    stepsOf(item) {
+      if (!item.subject || item.status.stage < 0) {
+        return [];
+      }
+
+      return item.role === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
+    },
+
+    /** done, now, waiting on you, or still to come - the mockup's four looks for a stage. */
+    stageClass(item, i) {
+      if (i < item.status.stage) {
+        return 'dash__stage--done';
+      }
+      if (i > item.status.stage) {
+        return 'dash__stage--todo';
+      }
+
+      return item.activity === 'input' || item.status.tone === 'warn' ? 'dash__stage--wait' : 'dash__stage--now';
+    },
+
+    teamStatus(item) {
+      if (item.activity === 'input') {
+        return { text: 'Waiting on you', tone: 'warn' };
+      }
+      if (item.activity === 'working') {
+        return { text: 'Working', tone: 'ok' };
+      }
+
+      return { text: item.status.text || 'Idle', tone: item.status.tone };
+    },
+
+    openItem(item) {
+      this.$emit('open-chat', item.chatIds[0]);
+    },
+
+    buildText: (b) => ({
+      passing: 'Passing', failing: 'Failing', running: 'Running'
+    }[b] || '—'),
     stateLabel(id) {
       return STATE_LABEL[this.activity[id] || 'none'];
     },
@@ -369,195 +405,238 @@ export default {
         </button>
       </section>
 
-      <section class="dash__card dash__chats">
-        <header class="dash__card-head">
-          <h2>Chats</h2>
-          <button
-            type="button"
-            class="dash__btn"
-            @click="$emit('new-chat')"
-          >
-            <AppIcon
-              name="plus"
-              :size="12"
-            /> New chat
-          </button>
-        </header>
-        <p
-          v-if="!chats.length"
-          class="dash__none"
-        >
-          No chats yet.
-        </p>
-        <ul class="dash__chatlist">
-          <li
-            v-for="chat in chats"
-            :key="chat.id"
-          >
+      <div class="dash__side">
+        <section class="dash__card dash__chats">
+          <header class="dash__card-head">
+            <h2>Chats</h2>
             <button
               type="button"
-              class="dash__chat"
-              :data-testid="`dashboard-chat-${ chat.id }`"
-              @click="$emit('open-chat', chat.id)"
+              class="dash__btn"
+              @click="$emit('new-chat')"
             >
-              <span
-                class="dash__dot"
-                :class="`dash__dot--${ stateOf(chat.id) }`"
-              />
-              <span class="dash__chat-title">{{ chat.title }}</span>
-              <span class="dash__chat-meta">
-                <template v-if="subjectFor(chat.id) && !chat.title.startsWith(subjectFor(chat.id))">{{ subjectFor(chat.id) }} · </template>{{ stateLabel(chat.id) }}
-              </span>
+              <AppIcon
+                name="plus"
+                :size="12"
+              /> New chat
             </button>
-          </li>
-        </ul>
-      </section>
+          </header>
+          <p
+            v-if="!chats.length"
+            class="dash__none"
+          >
+            No chats yet.
+          </p>
+          <ul class="dash__chatlist">
+            <li
+              v-for="chat in chats"
+              :key="chat.id"
+            >
+              <button
+                type="button"
+                class="dash__chat"
+                :data-testid="`dashboard-chat-${ chat.id }`"
+                @click="$emit('open-chat', chat.id)"
+              >
+                <span
+                  class="dash__dot"
+                  :class="`dash__dot--${ stateOf(chat.id) }`"
+                />
+                <span class="dash__chat-title">{{ chat.title }}</span>
+                <span class="dash__chat-meta">
+                  <template v-if="subjectFor(chat.id) && !chat.title.startsWith(subjectFor(chat.id))">{{ subjectFor(chat.id) }} · </template>{{ stateLabel(chat.id) }}
+                </span>
+              </button>
+            </li>
+          </ul>
+        </section>
+
+        <section
+          v-if="milestones.length"
+          class="dash__card dash__milestones"
+          data-testid="dashboard-milestones"
+        >
+          <header class="dash__card-head">
+            <h2>Next milestones</h2>
+          </header>
+          <ul class="dash__ms-list">
+            <li
+              v-for="m in milestones"
+              :key="m.name"
+              class="dash__ms"
+            >
+              <a
+                class="dash__ms-version"
+                :href="m.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ m.title }}</a>
+              <span class="dash__ms-text">
+                <span class="dash__ms-name">{{ m.name }}</span>
+                <span class="dash__muted">{{ m.open }} open · {{ m.closed }} closed</span>
+              </span>
+              <span
+                class="dash__pill"
+                :class="m.done >= 80 ? 'dash__pill--approved' : m.done >= 40 ? 'dash__pill--pending' : ''"
+              >{{ m.done }}% done</span>
+            </li>
+          </ul>
+        </section>
+      </div>
     </div>
 
-    <section class="dash__card">
+    <section
+      class="dash__card"
+      data-testid="dashboard-team"
+    >
       <header class="dash__card-head">
-        <h2>Pull requests</h2>
-        <div
-          class="dash__chips"
-          role="tablist"
-          aria-label="Pull request lists"
-        >
-          <button
-            v-for="t in [{ id: 'mine', label: 'Mine' }, { id: 'requested', label: 'Review requested' }, { id: 'reviewed', label: 'Reviewed by me' }]"
-            :key="t.id"
-            type="button"
-            role="tab"
-            class="dash__chip"
-            :class="{ 'dash__chip--on': prTab === t.id }"
-            :aria-selected="prTab === t.id ? 'true' : 'false'"
-            @click="prTab = t.id"
-          >
-            {{ t.label }} {{ prLists[t.id].length }}
-          </button>
+        <div>
+          <h2>Your agent team at work</h2>
+          <p class="dash__muted">
+            {{ teamSummary }}
+          </p>
         </div>
-      </header>
-      <p
-        v-if="!prGroups.length"
-        class="dash__none"
-      >
-        {{ !loadedAt ? 'Loading…' : 'None.' }}
-      </p>
-      <div
-        v-for="g in prGroups"
-        :key="g.id"
-        class="dash__group"
-      >
-        <h3>{{ g.name }}</h3>
-        <div class="dash__table-wrap">
-          <table class="dash__table">
-            <tbody>
-              <tr
-                v-for="pr in g.items"
-                :key="pr.key || refOf(pr)"
-              >
-                <td class="dash__td-title">
-                  <a
-                    :href="pr.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >{{ pr.title }}</a>
-                  <span class="dash__muted">{{ refOf(pr) }}<template v-if="prTab !== 'mine'"> · {{ pr.author }}</template></span>
-                </td>
-                <td>
-                  <span
-                    class="dash__pill"
-                    :class="`dash__pill--${ checks(pr) }`"
-                  >{{ checksText(pr) }}</span>
-                </td>
-                <td>
-                  <span
-                    class="dash__pill"
-                    :class="`dash__pill--${ review(pr) }`"
-                  >{{ reviewText(pr) }}</span>
-                  <span
-                    v-if="prTab === 'reviewed' && pushed(pr)"
-                    class="dash__pill dash__pill--pending"
-                  >pushed since</span>
-                </td>
-                <td class="dash__muted dash__nowrap">
-                  {{ when(pr.updatedAt) }}
-                </td>
-                <td class="dash__td-action">
-                  <button
-                    type="button"
-                    class="dash__btn"
-                    :disabled="isStarting(pr)"
-                    @click="chatButton(pr)"
-                  >
-                    {{ chatOf(pr) ? 'Open chat' : (isStarting(pr) ? 'Starting…' : 'Start chat') }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <section class="dash__card">
-      <header class="dash__card-head">
-        <h2>Issues assigned to you <span class="dash__muted">{{ work.issues.length }}</span></h2>
         <button
-          v-if="work.issues.length > 6"
           type="button"
           class="dash__link"
-          @click="issuesAll = !issuesAll"
+          @click="$emit('view-chats')"
         >
-          {{ issuesAll ? 'Show fewer' : 'Show all' }}
+          View all {{ chats.length }}
         </button>
       </header>
       <p
-        v-if="!issueGroups.length"
+        v-if="!team.length"
         class="dash__none"
       >
-        {{ !loadedAt ? 'Loading…' : 'None.' }}
+        Nothing is being worked on. Start a chat from a row above, or from the Browser.
       </p>
       <div
-        v-for="g in issueGroups"
-        :key="g.id"
-        class="dash__group"
+        v-else
+        class="dash__table-wrap"
       >
-        <h3>{{ g.name }} <span
-          v-if="g.more"
-          class="dash__muted"
-        >+{{ g.more }} more</span></h3>
-        <div class="dash__table-wrap">
-          <table class="dash__table">
-            <tbody>
-              <tr
-                v-for="issue in g.items"
-                :key="issue.key || refOf(issue)"
-              >
-                <td class="dash__td-title">
-                  <a
-                    :href="issue.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >{{ issue.title }}</a>
-                  <span class="dash__muted">{{ refOf(issue) }}<template v-if="issue.milestone"> · {{ issue.milestone }}</template><template v-if="issue.projectStatus?.name"> · {{ issue.projectStatus.name }}</template></span>
-                </td>
-                <td class="dash__muted dash__nowrap">
-                  {{ when(issue.updatedAt || issue.assignedAt) }}
-                </td>
-                <td class="dash__td-action">
-                  <button
-                    type="button"
-                    class="dash__btn"
-                    :disabled="isStarting(issue)"
-                    @click="chatButton(issue, 'issue')"
-                  >
-                    {{ chatOf(issue) ? 'Open chat' : (isStarting(issue) ? 'Starting…' : 'Start chat') }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <table class="dash__table dash__team">
+          <thead>
+            <tr>
+              <th>Work item</th>
+              <th>Stage</th>
+              <th>Status</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="item in team"
+              :key="item.key"
+              class="dash__team-row"
+              :data-testid="`team-${ item.key }`"
+              @click="openItem(item)"
+            >
+              <td class="dash__td-title">
+                <span class="dash__team-title">{{ item.title }}</span>
+                <span class="dash__muted">{{ item.ref || 'Chat' }} · {{ item.role === 'other' ? 'Other' : item.role === 'reviewer' ? 'Reviewer' : 'Developer' }} · {{ item.chatIds.length }} chat{{ item.chatIds.length === 1 ? '' : 's' }}</span>
+              </td>
+              <td>
+                <div
+                  v-if="stepsOf(item).length"
+                  class="dash__stages"
+                >
+                  <span
+                    v-for="(st, i) in stepsOf(item)"
+                    :key="st.key"
+                    class="dash__stage"
+                    :class="stageClass(item, i)"
+                  >{{ st.label }}</span>
+                </div>
+                <span
+                  v-else
+                  class="dash__muted"
+                >—</span>
+              </td>
+              <td class="dash__nowrap">
+                <span :class="`dash__status dash__status--${ teamStatus(item).tone || 'plain' }`">{{ teamStatus(item).text }}</span>
+              </td>
+              <td class="dash__td-action">
+                <button
+                  v-if="item.section === 'other'"
+                  type="button"
+                  class="dash__btn"
+                  title="Take it off this list; the chat stays in Chats"
+                  @click.stop="$emit('clear-chat', item.chatIds)"
+                >
+                  Clear
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section
+      class="dash__projects"
+      data-testid="dashboard-projects"
+    >
+      <header class="dash__projects-head">
+        <h2>Software projects</h2>
+        <p class="dash__muted">
+          {{ cards.length }} projects you work on{{ projects.length ? '' : ' - their releases, builds and bugs come from conversation-api' }}
+        </p>
+      </header>
+      <div class="dash__cards">
+        <article
+          v-for="c in cards"
+          :key="c.id"
+          class="dash__proj"
+          :class="{ 'dash__proj--needs': c.needYou }"
+        >
+          <header class="dash__proj-head">
+            <span class="dash__proj-avatar">{{ c.initials }}</span>
+            <span class="dash__proj-id">
+              <a
+                class="dash__proj-name"
+                :href="`https://github.com/${ c.repo }`"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ c.name }}</a>
+              <span class="dash__muted">{{ c.kind }}</span>
+            </span>
+            <span
+              v-if="c.needYou"
+              class="dash__proj-need"
+            >{{ c.needYou }} need{{ c.needYou === 1 ? 's' : '' }} you</span>
+          </header>
+          <div class="dash__proj-release">
+            <span class="dash__proj-release-text">
+              <span class="dash__muted">Next release</span>
+              <a
+                v-if="c.release"
+                :href="c.release.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ c.release.title }}</a>
+              <span v-else>—</span>
+            </span>
+            <span
+              v-if="c.release"
+              class="dash__pill"
+            >{{ c.release.open }} open</span>
+          </div>
+          <dl class="dash__proj-facts">
+            <div>
+              <dt>Build</dt>
+              <dd :class="`dash__build dash__build--${ c.build || 'none' }`">
+                {{ buildText(c.build) }}
+              </dd>
+            </div>
+            <div>
+              <dt>Agent tasks</dt>
+              <dd>{{ c.tasks }}</dd>
+            </div>
+            <div>
+              <dt>Open bugs</dt>
+              <dd>{{ c.bugs ?? '—' }}</dd>
+            </div>
+          </dl>
+        </article>
       </div>
     </section>
   </div>
@@ -871,6 +950,219 @@ export default {
       &--input { background: var(--conv-orange); opacity: 1; }
       &--idle,
       &--finished { background: var(--conv-accent); opacity: 0.6; }
+    }
+
+    &__side {
+      display:        flex;
+      flex-direction: column;
+      gap:            16px;
+      min-width:      0;
+    }
+
+    // Next milestones: the version where the mockup has the date.
+    &__ms-list {
+      margin:     0;
+      padding:    0;
+      list-style: none;
+    }
+
+    &__ms {
+      display:     flex;
+      align-items: center;
+      gap:         12px;
+      padding:     8px 0;
+      border-top:  1px solid var(--conv-line);
+    }
+
+    &__ms-version {
+      flex:            0 0 72px;
+      color:           var(--conv-ink);
+      font-size:       15px;
+      font-weight:     700;
+      text-decoration: none;
+    }
+
+    &__ms-text {
+      display:        flex;
+      flex:           1 1 auto;
+      flex-direction: column;
+      min-width:      0;
+    }
+
+    &__ms-name {
+      font-size:   13px;
+      font-weight: 600;
+    }
+
+    // Your agent team at work.
+    &__team {
+      th {
+        padding:        8px 8px 8px 0;
+        color:          var(--conv-meta);
+        font-size:      11px;
+        font-weight:    600;
+        letter-spacing: 0.04em;
+        text-align:     left;
+        text-transform: uppercase;
+      }
+    }
+
+    &__team-row {
+      cursor: pointer;
+
+      &:hover td { background: var(--conv-page); }
+    }
+
+    &__team-title {
+      display:     block;
+      font-weight: 600;
+    }
+
+    &__stages {
+      display:   flex;
+      flex-wrap: wrap;
+      gap:       6px;
+    }
+
+    &__stage {
+      padding:       3px 10px;
+      border:        1px solid transparent;
+      border-radius: 6px;
+      font-size:     12px;
+      white-space:   nowrap;
+
+      &--done { background: var(--conv-accent); color: #ffffff; }
+      &--now { border-color: var(--conv-ink); background: var(--conv-surface); color: var(--conv-ink); font-weight: 600; }
+      &--wait { border-color: var(--conv-orange); background: var(--conv-question-bg); color: var(--conv-question); font-weight: 600; }
+      &--todo { background: var(--conv-subtle); color: var(--conv-meta); }
+    }
+
+    &__status {
+      font-size: 13px;
+
+      &--warn { color: var(--conv-orange-text); font-weight: 600; }
+      &--ok { color: var(--conv-ok); font-weight: 600; }
+    }
+
+    // Software projects: the mockup's cards.
+    &__projects {
+      margin-top: 8px;
+    }
+
+    &__projects-head {
+      margin-bottom: 12px;
+
+      h2 {
+        color:       var(--conv-ink);
+        font-size:   20px;
+        font-weight: 600;
+      }
+    }
+
+    &__cards {
+      display:               grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap:                   16px;
+    }
+
+    &__proj {
+      display:        flex;
+      flex-direction: column;
+      gap:            14px;
+      padding:        16px;
+      border:         1px solid var(--conv-line);
+      border-radius:  14px;
+      background:     var(--conv-surface);
+
+      &--needs { border: 2px solid var(--conv-orange); }
+    }
+
+    &__proj-head {
+      display:     flex;
+      align-items: center;
+      gap:         12px;
+    }
+
+    &__proj-avatar {
+      display:         inline-flex;
+      flex:            0 0 40px;
+      align-items:     center;
+      justify-content: center;
+      height:          40px;
+      border-radius:   9px;
+      background:      var(--conv-ink);
+      color:           #ffffff;
+      font-size:       14px;
+      font-weight:     700;
+    }
+
+    &__proj-id {
+      display:        flex;
+      flex:           1 1 auto;
+      flex-direction: column;
+      min-width:      0;
+    }
+
+    &__proj-name {
+      color:           var(--conv-ink);
+      font-size:       15px;
+      font-weight:     700;
+      text-decoration: none;
+
+      &:hover { text-decoration: underline; }
+    }
+
+    &__proj-need {
+      padding:       2px 10px;
+      border-radius: 12px;
+      background:    var(--conv-orange);
+      color:         #ffffff;
+      font-size:     11px;
+      font-weight:   700;
+      white-space:   nowrap;
+    }
+
+    &__proj-release {
+      display:         flex;
+      align-items:     center;
+      justify-content: space-between;
+      gap:             8px;
+      padding:         10px 12px;
+      border-radius:   10px;
+      background:      var(--conv-page);
+
+      a {
+        color:           var(--conv-ink);
+        font-weight:     700;
+        text-decoration: none;
+      }
+    }
+
+    &__proj-release-text {
+      display:        flex;
+      flex-direction: column;
+    }
+
+    &__proj-facts {
+      display:               grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin:                0;
+
+      dt {
+        color:     var(--conv-meta);
+        font-size: 11px;
+      }
+
+      dd {
+        margin:      2px 0 0;
+        font-weight: 700;
+      }
+    }
+
+    &__build {
+      &--passing { color: var(--conv-ok); }
+      &--failing { color: var(--conv-blocked); }
+      &--running { color: var(--conv-question); }
     }
 
     &__group {

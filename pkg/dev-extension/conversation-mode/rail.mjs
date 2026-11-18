@@ -15,6 +15,8 @@ export const SECTIONS = [
   { id: 'developer', label: 'Developer' },
   { id: 'reviewer', label: 'Reviewer' },
   { id: 'other', label: 'Other' },
+  // What is over: a pull request merged or closed, an issue no longer yours, a chat cleared by hand.
+  { id: 'done', label: 'Done' },
 ];
 
 /** How urgent a chat's state is: the item shows its most urgent chat. */
@@ -116,6 +118,8 @@ export function statusOf(section, subject, found, hasChats = true) {
  */
 export function railSections(chats = [], links = {}, work = {}, activity = {}) {
   const index = indexWork(work);
+  // Before GitHub has answered once, nothing is "over": every subject would look closed.
+  const loaded = !!work.login;
   const items = new Map();
 
   for (const chat of chats) {
@@ -141,9 +145,15 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}) {
   }
   const all = [...items.values()].map(({ found, ...item }) => {
     const urgency = Math.max(0, ...item.chatIds.map((id) => URGENCY[activity[id] || 'none']));
+    // Development and review are over when GitHub no longer lists the subject as open and yours;
+    // a chat about nothing is over when it is cleared by hand.
+    const finished = item.subject ? loaded && !found : item.chatIds.every((id) => links[id]?.cleared);
 
     return {
       ...item,
+      finished,
+      section: finished ? 'done' : item.section,
+      role:    item.section,
       activity: Object.keys(URGENCY).find((k) => URGENCY[k] === urgency) || 'none',
       status:   statusOf(item.section, item.subject, found, item.chatIds.length > 0),
       updated:  Date.parse(found?.item?.updatedAt || '') || 0,

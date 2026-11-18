@@ -15,8 +15,10 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS, mergeWork } from '../projects.mjs';
-import { sectionQuery, shapeSection, askGithub } from './github.mjs';
+import { PROJECTS, CARDS, mergeWork } from '../projects.mjs';
+import {
+  sectionQuery, shapeSection, projectQuery, shapeProject, askGithub
+} from './github.mjs';
 import {
   acceptKey, frame, textFrame, readFrames
 } from './ws.mjs';
@@ -34,8 +36,10 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const state = {
-  at: 0, work: { login: '', mine: [], reviewing: [], issues: [] }, errors: [], refreshing: false, reason: ''
+  at: 0, work: { login: '', mine: [], reviewing: [], issues: [] }, projects: [], errors: [], refreshing: false, reason: ''
 };
+/** The last good answer of each software project card (projects.mjs, CARDS), by card id. */
+const lastProjects = {};
 /** The last good answer of each product and section, so one that fails keeps what it had. */
 let lastAnswers = [];
 const sockets = new Set();
@@ -66,7 +70,12 @@ function loadCache() {
     const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
 
     if (cached?.at && cached.work) {
-      Object.assign(state, { at: cached.at, work: cached.work, errors: cached.errors || [] });
+      Object.assign(state, {
+        at: cached.at, work: cached.work, projects: cached.projects || [], errors: cached.errors || []
+      });
+      for (const p of state.projects) {
+        lastProjects[p.id] = p;
+      }
       log(`cache from ${ new Date(cached.at).toISOString() }`);
     }
   } catch {
@@ -79,7 +88,9 @@ function saveCache() {
     fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
     const tmp = `${ CACHE_FILE }.tmp`;
 
-    fs.writeFileSync(tmp, JSON.stringify({ at: state.at, work: state.work, errors: state.errors }));
+    fs.writeFileSync(tmp, JSON.stringify({
+      at: state.at, work: state.work, projects: state.projects, errors: state.errors
+    }));
     fs.renameSync(tmp, CACHE_FILE);
   } catch (e) {
     log(`cache not saved: ${ e.message }`);
@@ -88,7 +99,7 @@ function saveCache() {
 
 function snapshot() {
   return {
-    type: 'work', at: state.at, work: state.work, errors: state.errors, refreshing: state.refreshing
+    type: 'work', at: state.at, work: state.work, projects: state.projects, errors: state.errors, refreshing: state.refreshing
   };
 }
 
@@ -123,21 +134,27 @@ async function refresh(reason) {
 
       return true;
     }
-    const jobs = PROJECTS.flatMap((p) => SECTIONS.map((section) => ({ p, section })));
+    // Your work, per product and section, then the software project cards - one pool, two at a time.
+    const jobs = [
+      ...PROJECTS.flatMap((p) => SECTIONS.map((section) => ({
+        label: `${ p.name } ${ section }`, query: sectionQuery(p.repos, section), shape: (d) => shapeSection(section, d)
+      }))),
+      ...CARDS.map((card) => ({
+        label: `${ card.name } project`, card, query: projectQuery(card), shape: (d) => shapeProject(card, d)
+      })),
+    ];
     const results = new Array(jobs.length);
     let next = 0;
-    const one = async({ p, section }) => {
-      const query = sectionQuery(p.repos, section);
-
+    const one = async({ query, shape }) => {
       try {
-        return shapeSection(section, await askGithub(tok, query));
+        return shape(await askGithub(tok, query));
       } catch (e) {
         if (!/ 50[234]\b/.test(e.message)) {
           throw e;
         }
         await sleep(1500);
 
-        return shapeSection(section, await askGithub(tok, query));
+        return shape(await askGithub(tok, query));
       }
     };
 
@@ -148,14 +165,24 @@ async function refresh(reason) {
         results[i] = await one(jobs[i]).then((value) => ({ value }), (error) => ({ error }));
       }
     }));
-    state.errors = results.map((r, i) => (r.error ? `${ jobs[i].p.name } ${ jobs[i].section }: ${ r.error.message }` : '')).filter(Boolean);
-    lastAnswers = jobs.map((_, i) => results[i].value || lastAnswers[i] || null);
+    state.errors = results.map((r, i) => (r.error ? `${ jobs[i].label }: ${ r.error.message }` : '')).filter(Boolean);
+    const workCount = PROJECTS.length * SECTIONS.length;
+
+    lastAnswers = jobs.slice(0, workCount).map((_, i) => results[i].value || lastAnswers[i] || null);
+    jobs.slice(workCount).forEach((job, j) => {
+      const r = results[workCount + j];
+
+      if (r.value) {
+        lastProjects[job.card.id] = r.value;
+      }
+    });
+    state.projects = CARDS.map((c) => lastProjects[c.id]).filter(Boolean);
     if (lastAnswers.some(Boolean)) {
       state.work = mergeWork(lastAnswers);
       state.at = Date.now();
       saveCache();
     }
-    log(`refreshed (${ reason }): ${ state.work.mine.length } mine, ${ state.work.reviewing.length } reviewing, ${ state.work.issues.length } issues${ state.errors.length ? `; errors: ${ state.errors.join(' | ') }` : '' }`);
+    log(`refreshed (${ reason }): ${ state.work.mine.length } mine, ${ state.work.reviewing.length } reviewing, ${ state.work.issues.length } issues, ${ state.projects.length } projects${ state.errors.length ? `; errors: ${ state.errors.join(' | ') }` : '' }`);
 
     return true;
   } finally {

@@ -30,7 +30,9 @@ const STATE_LABEL = {
   working: 'Working', input: 'Waiting for you', idle: 'Idle', finished: 'Done', none: 'Not running'
 };
 
-const SECTION_ICON = { developer: 'pencil', reviewer: 'check', other: 'comment' };
+const SECTION_ICON = {
+  developer: 'pencil', reviewer: 'check', other: 'comment', done: 'clock'
+};
 
 export default {
   name: 'ConversationChats',
@@ -62,6 +64,8 @@ export default {
       query:      '',
       /** The chat last open in each item, so going back to an item goes back to it. */
       lastInItem: {},
+      /** Whether the Done group is open; it starts shut, and a search opens it. */
+      doneOpen:   false,
     };
   },
 
@@ -97,15 +101,19 @@ export default {
         return [];
       }
 
-      return item.section === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
+      return item.role === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
     },
 
     currentLinks() {
       return this.chatLinks[this.current] || [];
     },
 
+    /**
+     * The chips in view: the ones that name something (pull requests, previews, pages, CI, Jira,
+     * docs) - a site the agent happened to cite while searching waits behind "+N more".
+     */
     shownLinks() {
-      return this.linksAll ? this.currentLinks : this.currentLinks.slice(0, LINKS_SHOWN);
+      return this.linksAll ? this.currentLinks : this.currentLinks.filter((l) => l.kind !== 'other').slice(0, LINKS_SHOWN);
     },
   },
 
@@ -251,10 +259,25 @@ export default {
               :name="icon(sec.id)"
               :size="12"
             />
-            {{ sec.label }}
+            <button
+              v-if="sec.id === 'done'"
+              type="button"
+              class="chats__sec-toggle"
+              :aria-expanded="doneOpen || query ? 'true' : 'false'"
+              data-testid="rail-done-toggle"
+              @click="doneOpen = !doneOpen"
+            >
+              {{ sec.label }} ({{ sec.items.length }}) <AppIcon
+                :name="doneOpen || query ? 'chevron-up' : 'chevron-down'"
+                :size="11"
+              />
+            </button>
+            <template v-else>
+              {{ sec.label }}
+            </template>
           </h3>
           <button
-            v-for="item in sec.items"
+            v-for="item in (sec.id !== 'done' || doneOpen || query ? sec.items : [])"
             :key="item.key"
             type="button"
             class="chats__item"
@@ -418,12 +441,12 @@ export default {
           class="chats__link-kind"
         >{{ linkKind(link) }}</span>{{ link.label }}</a>
         <button
-          v-if="currentLinks.length > LINKS_SHOWN"
+          v-if="linksAll || currentLinks.length > shownLinks.length"
           type="button"
           class="chats__link-more"
           @click="linksAll = !linksAll"
         >
-          {{ linksAll ? 'Fewer' : `+${ currentLinks.length - LINKS_SHOWN } more` }}
+          {{ linksAll ? 'Fewer' : `+${ currentLinks.length - shownLinks.length } more` }}
         </button>
       </nav>
 
@@ -544,9 +567,25 @@ export default {
       text-transform: uppercase;
     }
 
+    &__sec-toggle {
+      display:        inline-flex;
+      align-items:    center;
+      gap:            4px;
+      padding:        0;
+      border:         0;
+      background:     none;
+      color:          inherit;
+      cursor:         pointer;
+      font:           inherit;
+      letter-spacing: inherit;
+      text-transform: inherit;
+    }
+
     &__item {
       display:       flex;
       align-items:   flex-start;
+      // Rancher's button rule keeps text on one line; an item's title wraps to two.
+      white-space:   normal;
       gap:           8px;
       width:         100%;
       padding:       8px 10px;
@@ -577,6 +616,7 @@ export default {
     &__item-title {
       display:            -webkit-box;
       overflow:           hidden;
+      overflow-wrap:      anywhere;
       font-size:          13px;
       font-weight:        600;
       line-height:        1.3;
@@ -638,6 +678,14 @@ export default {
 
     &__stages {
       flex: 0 1 560px;
+    }
+
+    // Every row above the chat keeps its height: the body is the one that grows, and without this
+    // the tab strip was the one squashed when the body asked for room.
+    &__head,
+    &__tabs,
+    &__links {
+      flex: 0 0 auto;
     }
 
     &__tabs {

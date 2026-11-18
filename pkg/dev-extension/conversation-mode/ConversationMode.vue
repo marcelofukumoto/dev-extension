@@ -13,6 +13,7 @@
 import AppIcon from '../components/focus/AppIcon.vue';
 import ConversationChats from './ConversationChats.vue';
 import ConversationDashboard from './ConversationDashboard.vue';
+import ConversationBrowser from './ConversationBrowser.vue';
 import {
   listConversations, startConversation, renameConversation, endConversation, conversationStates
 } from '../conversations';
@@ -68,7 +69,9 @@ const EMPTY_WORK = () => ({
 export default {
   name: 'ConversationMode',
 
-  components: { AppIcon, ConversationChats, ConversationDashboard },
+  components: {
+    AppIcon, ConversationChats, ConversationDashboard, ConversationBrowser
+  },
 
   data() {
     return {
@@ -96,6 +99,10 @@ export default {
        * `browser` (the page asks itself, every ten minutes) when the server cannot be reached.
        */
       workSource:   '',
+      /** The software project cards' data, from conversation-api (none when the page asks GitHub itself). */
+      projects:     [],
+      /** Whether the browser has been shown: it is mounted then and kept, filters and all. */
+      browserShown: false,
     };
   },
 
@@ -119,7 +126,7 @@ export default {
 
   computed: {
     view() {
-      return this.$route.query.view === 'chat' ? 'chat' : 'dashboard';
+      return ['chat', 'browser'].includes(this.$route.query.view) ? this.$route.query.view : 'dashboard';
     },
 
     current() {
@@ -169,6 +176,9 @@ export default {
     view: {
       immediate: true,
       handler(v) {
+        if (v === 'browser') {
+          this.browserShown = true;
+        }
         if (v === 'chat') {
           this.chatsShown = true;
           if (!this.current && this.chats.length) {
@@ -191,7 +201,7 @@ export default {
       const to = {
         name:   CONVERSATION_ROUTE,
         params: { product: DEV_PRODUCT, cluster: BLANK_CLUSTER },
-        query:  view === 'chat' ? { view: 'chat' } : {},
+        query:  view === 'dashboard' ? {} : { view },
         hash:   id ? `#${ id }` : '',
       };
 
@@ -279,6 +289,7 @@ export default {
         this.work = { ...EMPTY_WORK(), ...m.work };
         this.workErrors = m.errors || [];
         this.workLoadedAt = m.at;
+        this.projects = m.projects || this.projects;
         this.saveCachedWork();
       }
       this.workLoading = !!m?.refreshing;
@@ -311,7 +322,7 @@ export default {
         const slim = (list) => (list || []).map(({ body, ...rest }) => rest);
 
         window.localStorage.setItem(WORK_CACHE_KEY, JSON.stringify({
-          at: this.workLoadedAt, work: { ...this.work, mine: slim(this.work.mine), reviewing: slim(this.work.reviewing), issues: slim(this.work.issues) }
+          at: this.workLoadedAt, projects: this.projects, work: { ...this.work, mine: slim(this.work.mine), reviewing: slim(this.work.reviewing), issues: slim(this.work.issues) }
         }));
       } catch {
         // Storage full or blocked: the next visit loads it again.
@@ -325,6 +336,7 @@ export default {
         if (cached?.work && cached.at) {
           this.work = { ...EMPTY_WORK(), ...cached.work };
           this.workLoadedAt = cached.at;
+          this.projects = cached.projects || [];
         }
       } catch {
         // A private window or blocked storage: the first load draws it instead.
@@ -496,6 +508,22 @@ export default {
       this.go('chat', id);
     },
 
+    /**
+     * Take chats about nothing off "Your agent team at work": marked cleared in the links, so the
+     * rail files them under Done. The chats themselves stay; closing one is the rail's ×.
+     */
+    async clearChats(ids = []) {
+      this.links = await updateLinks((links) => {
+        for (const id of ids) {
+          links[id] = { ...(links[id] || {}), cleared: true };
+        }
+      }).catch((e) => {
+        this.error = `The chat could not be cleared: ${ e?.message || e }`;
+
+        return this.links;
+      });
+    },
+
     async renameChat({ id, title }) {
       const chat = this.chats.find((c) => c.id === id);
 
@@ -572,6 +600,16 @@ export default {
         <button
           type="button"
           class="conv__view"
+          :class="{ 'conv__view--on': view === 'browser' }"
+          :aria-current="view === 'browser' ? 'page' : null"
+          data-testid="conversation-view-browser"
+          @click="go('browser')"
+        >
+          Browser
+        </button>
+        <button
+          type="button"
+          class="conv__view"
           :class="{ 'conv__view--on': view === 'chat' }"
           :aria-current="view === 'chat' ? 'page' : null"
           data-testid="conversation-view-chat"
@@ -641,10 +679,24 @@ export default {
       :errors="workErrors"
       :loading="workLoading"
       :loaded-at="workLoadedAt"
+      :projects="projects"
       @open-chat="openChat"
       @start-chat="createChat"
       @new-chat="createChat()"
       @reload="refreshWork('refresh button')"
+      @clear-chat="clearChats"
+      @view-chats="go('chat', current)"
+    />
+    <ConversationBrowser
+      v-if="browserShown"
+      v-show="view === 'browser'"
+      :work="work"
+      :chats="chats"
+      :links="links"
+      :starting="starting"
+      :loaded-at="workLoadedAt"
+      @open-chat="openChat"
+      @start-chat="createChat"
     />
     <ConversationChats
       v-if="chatsShown"
