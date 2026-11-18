@@ -8,8 +8,10 @@
 // Plain functions over the chats, their links (links.ts) and GitHub as myWork() answers it, so the
 // grouping is tested without a page.
 import {
-  subjectKey, shortRef, checksState, reviewState, pushedSinceReview
+  subjectKey, shortRef, checksState, reviewState, pushedSinceReview, changesAddressed, isArchived
 } from './projects.mjs';
+
+export { isArchived };
 
 export const SECTIONS = [
   { id: 'developer', label: 'Developer' },
@@ -79,8 +81,11 @@ export function statusOf(section, subject, found, hasChats = true) {
     if (review === 'draft') {
       return { text: 'Draft', tone: '', stage: 2 };
     }
+    if (review === 'changes' && changesAddressed(it)) {
+      return checks === 'failing' ? { text: `Review asked again · ${ it.checks.failing } check${ it.checks.failing === 1 ? '' : 's' } failing`, tone: 'warn', stage: 3 } : { text: 'Review asked again', tone: '', stage: 3 };
+    }
     if (review === 'changes') {
-      return { text: 'Changes requested', tone: 'warn', stage: 4 };
+      return { text: 'Still on suggested changes', tone: 'warn', stage: 4 };
     }
     if (checks === 'failing') {
       return { text: `${ it.checks.failing } check${ it.checks.failing === 1 ? '' : 's' } failing`, tone: 'warn', stage: 3 };
@@ -91,7 +96,14 @@ export function statusOf(section, subject, found, hasChats = true) {
 
     return { text: 'In review', tone: '', stage: 3 };
   }
-  if (reviewState(it) === 'approved' && it.reviewedAt) {
+  const reviewing = reviewerStatus(it);
+
+  return it.draft ? { ...reviewing, text: `Draft · ${ reviewing.text }` } : reviewing;
+}
+
+/** A pull request you review, where it stands (statusOf's REVIEWER half, before "Draft"). */
+function reviewerStatus(it) {
+  if ((it.approved || it.reviewDecision === 'APPROVED') && it.reviewedAt) {
     return { text: 'Approved', tone: 'ok', stage: 4 };
   }
   if (it.reviewRequested && !it.reviewedAt) {
@@ -167,11 +179,6 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}) {
     items: all.filter((i) => i.section === s.id)
       .sort((a, b) => (URGENCY[b.activity] - URGENCY[a.activity]) || (b.updated - a.updated) || a.title.localeCompare(b.title)),
   }));
-}
-
-/** Whether a chat was archived by hand (`cleared` is the older name of the same mark). */
-export function isArchived(link) {
-  return !!(link?.archived || link?.cleared);
 }
 
 /** Items whose title, reference or status mention every word of the query. */

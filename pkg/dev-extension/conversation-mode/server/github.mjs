@@ -16,6 +16,7 @@ const PR_FIELDS = `
     __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state }
   } } } } } }
   latestOpinionatedReviews(first: 10) { nodes { state body author { login } } }
+  reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } } } }
   reviews(last: 30) { nodes { author { login } submittedAt } }
 `;
 
@@ -88,8 +89,12 @@ export function shapePr(node, login, reviewRequested = false) {
   const opinions = node.latestOpinionatedReviews?.nodes || [];
   const approved = node.reviewDecision === 'APPROVED' || opinions.some((r) => r.state === 'APPROVED');
   // Who is holding it, and the first thing they said: the reason a "changes requested" is blocked.
+  // Who the review is asked of now: one who asked for changes and is in here was asked again.
+  const requestedFrom = (node.reviewRequests?.nodes || []).map((r) => r?.requestedReviewer?.login).filter(Boolean);
   const changesBy = opinions.filter((r) => r.state === 'CHANGES_REQUESTED').map((r) => ({
-    login: r.author?.login || '', said: String(r.body || '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 160) || ''
+    login: r.author?.login || '',
+    said:  String(r.body || '').split('\n').map((l) => l.trim()).find(Boolean)?.slice(0, 160) || '',
+    asked: requestedFrom.includes(r.author?.login),
   }));
 
   return {
@@ -107,6 +112,7 @@ export function shapePr(node, login, reviewRequested = false) {
     pushedAt:       node.commits?.nodes?.[0]?.commit?.committedDate || '',
     reviewedAt,
     reviewRequested,
+    requestedFrom,
     changesBy,
     // What stands between it and a merge, as GitHub sees it: CLEAN, BLOCKED (a branch rule), BEHIND,
     // DIRTY (conflicts), UNSTABLE (a non-required check fails), UNKNOWN (not worked out yet).

@@ -444,7 +444,7 @@ test('why a pull request is blocked: who asked for changes and what, which check
   const p = shape(node, 'me');
 
   assert.deepEqual(p.checks.failingNames, ['e2e-test (chrome)', 'lint']);
-  assert.equal(blockedReason(p), 'Changes requested by @nwmac: "Please keep the existing masthead." · Failing: e2e-test (chrome), lint');
+  assert.equal(blockedReason(p), 'Still on the changes @nwmac asked for: "Please keep the existing masthead." · Failing: e2e-test (chrome), lint');
   assert.equal(blockedReason(pr({ number: 1, checks: { failing: 1, pending: 0, total: 3 } })), '1 check failing');
 });
 
@@ -528,4 +528,53 @@ test('doingText: only a chat that works or asks has something to say', async() =
   assert.equal(doingText({ now: { text: 'Asking: Which backend?' }, step: 'Testing' }, 'input'), 'Asking: Which backend?');
   assert.equal(doingText(t, 'idle'), '');
   assert.equal(doingText(undefined, 'working'), '');
+});
+
+// ── Changes requested, asked again; drafts; archived chats ─────────────────────────────────────
+
+test('changes requested and the review asked again of everyone who asked: off Needs your attention', async() => {
+  const { changesAddressed } = await import('../conversation-mode/projects.mjs');
+  const { statusOf } = await import('../conversation-mode/rail.mjs');
+  const pr = (asked, failing = 0) => ({
+    repo: 'harvester/docs', number: 1175, title: 'docs', url: 'u', updatedAt: '2026-11-18T10:00:00Z',
+    reviewDecision: 'CHANGES_REQUESTED', changesBy: [{ login: 'sushant-suse', said: 'nits', asked }],
+    checks: { total: 3, failing, pending: 0, failingNames: failing ? ['netlify'] : [] },
+  });
+
+  assert.equal(changesAddressed(pr(true)), true);
+  assert.equal(changesAddressed(pr(false)), false);
+  // The page's own myWork() does not say who was asked: still yours, as before.
+  assert.equal(changesAddressed({ ...pr(true), changesBy: [] }), false);
+
+  assert.deepEqual(attentionRows({ mine: [pr(true)] }), []);
+  assert.equal(attentionRows({ mine: [pr(false)] })[0].why, 'Still on the changes @sushant-suse asked for: "nits"');
+  assert.equal(attentionRows({ mine: [pr(true, 1)] })[0].why, 'Review asked again of @sushant-suse · Failing: netlify');
+
+  const found = (p) => ({ kind: 'pr', role: 'developer', item: p });
+
+  assert.deepEqual(statusOf('developer', { kind: 'pr' }, found(pr(true))), { text: 'Review asked again', tone: '', stage: 3 });
+  assert.deepEqual(statusOf('developer', { kind: 'pr' }, found(pr(false))), { text: 'Still on suggested changes', tone: 'warn', stage: 4 });
+});
+
+test('a review of a draft is marked draft, and comes after the other reviews', () => {
+  const pr = (number, draft) => ({
+    repo: 'rancher/rancher-ai-ui', number, title: `pr ${ number }`, url: 'u', author: 'torchiaf', reviewRequested: true, draft, updatedAt: `2026-11-1${ number % 10 }T10:00:00Z`,
+  });
+  const rows = attentionRows({ reviewing: [pr(256, true), pr(353, false)] });
+
+  assert.deepEqual(rows.map((r) => [r.subject.number, r.draft]), [[353, false], [256, true]]);
+});
+
+test('a reviewer\'s status says Draft first', async() => {
+  const { statusOf } = await import('../conversation-mode/rail.mjs');
+  const it = { reviewRequested: true, reviewedAt: '', draft: true };
+
+  assert.deepEqual(statusOf('reviewer', { kind: 'pr' }, { kind: 'pr', role: 'reviewer', item: it }), { text: 'Draft · Your review', tone: 'warn', stage: 0 });
+});
+
+test('an archived chat asks nothing in Needs your attention', () => {
+  const chats = [{ id: 'p-1', title: 'one' }, { id: 'p-2', title: 'two' }, { id: 'p-3', title: 'three' }];
+  const rows = attentionRows({}, chats, { 'p-1': 'input', 'p-2': 'input', 'p-3': 'input' }, { 'p-2': { archived: true }, 'p-3': { cleared: true } });
+
+  assert.deepEqual(rows.map((r) => r.chatId), ['p-1']);
 });

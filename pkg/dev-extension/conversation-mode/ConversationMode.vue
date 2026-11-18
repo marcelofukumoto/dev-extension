@@ -15,7 +15,8 @@ import ConversationChats from './ConversationChats.vue';
 import ConversationDashboard from './ConversationDashboard.vue';
 import ConversationBrowser from './ConversationBrowser.vue';
 import {
-  listConversations, startConversation, renameConversation, endConversation, conversationStates
+  listConversations, startConversation, renameConversation, endConversation, conversationStates,
+  conversationSnapshot, statesFromSnapshot
 } from '../conversations';
 import { agentStateOf } from '../workspace-status';
 import {
@@ -36,6 +37,9 @@ import { fetchWork, requestRefresh, listenForWork } from './work-client';
 
 /** How often what each agent is doing is asked again. */
 const STATE_POLL_MS = 5000;
+
+/** The states dev-api decides that the page takes as they are (conversations.ts, ConversationNow). */
+const DECIDED_STATES = new Set(['working', 'input', 'idle', 'finished']);
 
 /** How often the transcripts are read: the links bar and the chats' names come from them. */
 const TRANSCRIPT_POLL_MS = 20000;
@@ -240,7 +244,22 @@ export default {
     },
 
     async refreshStates() {
-      const states = await conversationStates().catch(() => null);
+      /*
+       * dev-api's watcher decides each state and says so (`state`); that is the answer. Worked out
+       * again from the hook event here it was wrong: the snapshot drops the notification's type
+       * (`note` is null), and a bare `Notification` reads as a question - so every chat resting
+       * at its prompt after a turn ("idle_prompt") showed as waiting for you. agentStateOf is
+       * only for when the watcher cannot be reached and conversationStates() reads the pod.
+       */
+      const snapshot = await conversationSnapshot().catch(() => null);
+      const decided = {};
+
+      for (const c of Object.values(snapshot?.conversations || {})) {
+        if (c?.id && DECIDED_STATES.has(c.state)) {
+          decided[c.id] = c.state;
+        }
+      }
+      const states = snapshot ? statesFromSnapshot(snapshot) : await conversationStates().catch(() => null);
 
       if (!states) {
         return;
@@ -249,7 +268,7 @@ export default {
 
       for (const s of states) {
         if (s.workspace === CONVERSATION_WORKSPACE) {
-          activity[s.id] = agentStateOf(s);
+          activity[s.id] = decided[s.id] || agentStateOf(s);
         }
       }
       // A chat that was working and stopped has probably done something on GitHub - pushed,

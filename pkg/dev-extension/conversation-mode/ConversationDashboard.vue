@@ -238,7 +238,8 @@ export default {
       return this.starting === subjectKey(item.repo, item.number);
     },
 
-    kindLabel: (k) => KIND_LABEL[k] || k,
+    /** The row's chip: its kind, and "Draft" before a review of a draft pull request. */
+    kindLabel: (row) => `${ row.draft ? 'Draft ' : '' }${ row.draft ? (KIND_LABEL[row.kind] || row.kind).toLowerCase() : (KIND_LABEL[row.kind] || row.kind) }`,
 
     /** The stage strip of a team row: the Dev product's steps for a fix or a review. */
     stepsOf(item) {
@@ -443,8 +444,8 @@ export default {
           >
             <span
               class="dash__kind"
-              :class="`dash__kind--${ row.kind }`"
-            >{{ kindLabel(row.kind) }}</span>
+              :class="[`dash__kind--${ row.kind }`, { 'dash__kind--draft': row.draft }]"
+            >{{ kindLabel(row) }}</span>
             <div class="dash__row-main">
               <button
                 type="button"
@@ -977,7 +978,7 @@ export default {
 
     &__kind {
       flex:          0 0 auto;
-      width:         84px;
+      width:         96px;
       padding:       3px 0;
       border-radius: 6px;
       font-size:     11px;
@@ -989,6 +990,8 @@ export default {
       &--question { background: var(--conv-question-bg); color: var(--conv-question); }
       &--blocked { background: var(--conv-blocked-bg); color: var(--conv-blocked); }
       &--ready { background: var(--conv-ok-bg); color: var(--conv-ok); }
+      // Nobody is waiting on a draft's review yet: the same colour, quieter.
+      &--draft { background: none; box-shadow: inset 0 0 0 1px currentColor; border: 0; opacity: 0.85; }
     }
 
     &__row-main {

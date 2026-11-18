@@ -126,6 +126,18 @@ export function reviewState(pr) {
 }
 
 /**
+ * Changes were requested on a pull request of yours and every reviewer who asked has been asked
+ * to review again: it waits on them, not on you. GitHub keeps CHANGES_REQUESTED until they review,
+ * so the request for a review is what says you are done. False when the answer does not say who
+ * was asked (the page's own myWork()).
+ */
+export function changesAddressed(pr) {
+  const by = (pr.changesBy || []).filter((c) => c.login);
+
+  return reviewState(pr) === 'changes' && by.length > 0 && by.every((c) => c.asked);
+}
+
+/**
  * Why a pull request of yours is blocked, in a line: who asked for changes and the first thing
  * they said, then which checks fail. Falls back to counts for an answer that does not name them
  * (the page's own myWork() does not).
@@ -136,7 +148,13 @@ export function blockedReason(pr) {
   if (reviewState(pr) === 'changes') {
     const by = (pr.changesBy || []).filter((c) => c.login);
 
-    parts.push(by.length ? `Changes requested by ${ by.map((c) => `@${ c.login }`).join(', ') }${ by[0].said ? `: "${ by[0].said.length > 90 ? `${ by[0].said.slice(0, 89) }…` : by[0].said }"` : '' }` : 'Changes requested');
+    if (changesAddressed(pr)) {
+      parts.push(`Review asked again of ${ by.map((c) => `@${ c.login }`).join(', ') }`);
+    } else {
+      const said = by[0]?.said ? `: "${ by[0].said.length > 90 ? `${ by[0].said.slice(0, 89) }…` : by[0].said }"` : '';
+
+      parts.push(by.length ? `Still on the changes @${ by.map((c) => c.login).join(', @') } asked for${ said }` : 'Changes requested');
+    }
   }
   if (checksState(pr) === 'failing') {
     const names = pr.checks?.failingNames || [];
@@ -180,6 +198,11 @@ export function readyReason(pr) {
 }
 
 /** How much each kind of row matters, most first: the order "Needs your attention" is in. */
+/** Whether a chat was archived by hand (`cleared` is the older name of the same mark). */
+export function isArchived(link) {
+  return !!(link?.archived || link?.cleared);
+}
+
 const RANK = {
   question: 0, blocked: 1, review: 2, rereview: 3, ready: 4
 };
@@ -203,7 +226,8 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
   const chatFor = chatsBySubject(chats, links);
 
   for (const chat of chats) {
-    if (activity[chat.id] === 'input') {
+    // An archived chat is put away: it asks nothing of anyone here, whatever its agent is doing.
+    if (activity[chat.id] === 'input' && !isArchived(links[chat.id])) {
       const subject = links[chat.id]?.subject || null;
 
       rows.push({
@@ -216,7 +240,8 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
     const review = reviewState(pr);
     const key = subjectKey(pr.repo, pr.number);
 
-    if (checks === 'failing' || review === 'changes') {
+    // Changes requested and the review asked again: it waits on the reviewer - not here, unless a check fails.
+    if (checks === 'failing' || (review === 'changes' && !changesAddressed(pr))) {
       rows.push({
         kind: 'blocked', key, title: pr.title, subject: { ...subjectOf(pr), role: 'developer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: blockedReason(pr),
       });
@@ -231,16 +256,17 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
 
     if (pr.reviewRequested) {
       rows.push({
-        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`,
+        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft,
       });
     } else if (pushedSinceReview(pr)) {
       rows.push({
-        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`,
+        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since your review`, draft: !!pr.draft,
       });
     }
   }
 
-  return rows.sort((a, b) => (RANK[a.kind] - RANK[b.kind]) || ((Date.parse(b.at) || 0) - (Date.parse(a.at) || 0)));
+  // A draft is a review nobody is waiting on yet: after the others of its kind.
+  return rows.sort((a, b) => (RANK[a.kind] - RANK[b.kind]) || (!!a.draft - !!b.draft) || ((Date.parse(b.at) || 0) - (Date.parse(a.at) || 0)));
 }
 
 /** subject key -> the chat working on it, for the chats that still exist. */
