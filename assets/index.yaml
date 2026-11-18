@@ -12,16 +12,38 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 5.0.0'
     apiVersion: v2
-    appVersion: 0.3.72203
-    created: "2026-11-18T15:50:22.00197089Z"
+    appVersion: 0.3.72204
+    created: "2026-11-18T15:56:32.615254753Z"
     description: Workspaces for rancher/dashboard pointed at any Rancher, with reviews,
       fixes, shares and agents
-    digest: fe9e75728c6a23ee5af4203e588a2a233a24732f191a6e850a0271c9f91a48b7
+    digest: afda0aeb9b77d8364167b608b95a713cf12f4e51608cee81930bde89b59c416a
     icon: https://codyrancher.github.io/dev-extension/icon.svg
     name: dev-extension
     type: application
     urls:
-    - assets/dev-extension/dev-extension-0.3.72203.tgz
+    - assets/dev-extension/dev-extension-0.3.72204.tgz
+    version: 0.3.72204
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Dev Extension
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 5.0.0'
+    apiVersion: v2
+    appVersion: 0.3.72203
+    created: "2026-11-18T15:50:50.544082526Z"
+    description: Workspaces for rancher/dashboard pointed at any Rancher, with reviews,
+      fixes, shares and agents
+    digest: 4a3400b487fb29520939357268a6090fb4876546cc8dd150e2859681b243138d
+    icon: https://codyrancher.github.io/dev-extension/icon.svg
+    name: dev-extension
+    type: application
+    urls:
+    - https://github.com/marcelofukumoto/dev-extension/releases/download/dev-extension-0.3.72203/dev-extension-0.3.72203.tgz
     version: 0.3.72203
   - annotations:
       catalog.cattle.io/certified: rancher
@@ -67,4 +89,4 @@ entries:
     urls:
     - assets/dev-extension/dev-extension-0.3.72201.tgz
     version: 0.3.72201
-generated: "2026-11-18T15:50:22.001540244Z"
+generated: "2026-11-18T15:56:32.614828577Z"
