@@ -11,6 +11,14 @@ import AppIcon from '../components/focus/AppIcon.vue';
 import { chatCommand } from './config.mjs';
 import { shortRef } from './projects.mjs';
 
+/** Chips in the links bar before "+N more". */
+const LINKS_SHOWN = 8;
+
+/** What a chip says it is, before its label. */
+const LINK_KIND = {
+  preview: 'Preview', page: 'Page', pr: 'PR', issue: 'Issue', ci: 'CI', env: 'Rancher', jira: 'Jira', doc: 'Docs', other: ''
+};
+
 const STATE_LABEL = {
   working: 'Working', input: 'Waiting for you', idle: 'Idle', finished: 'Done', none: 'Not running'
 };
@@ -26,6 +34,8 @@ export default {
     chats:    { type: Array, default: () => [] },
     activity: { type: Object, default: () => ({}) },
     links:    { type: Object, default: () => ({}) },
+    /** chat id -> its links as chips (linkify.mjs, chatLinks), from the page around this. */
+    chatLinks: { type: Object, default: () => ({}) },
     current:  { type: String, default: '' },
     loading:  { type: Boolean, default: false },
     creating: { type: Boolean, default: false },
@@ -33,8 +43,20 @@ export default {
 
   data() {
     return {
-      opened:     {}, renaming:   '', renameText: '', closing:    '',
+      opened:     {}, renaming:   '', renameText: '', closing:    '', linksAll:   false,
     };
+  },
+
+  computed: {
+    LINKS_SHOWN: () => LINKS_SHOWN,
+
+    currentLinks() {
+      return this.chatLinks[this.current] || [];
+    },
+
+    shownLinks() {
+      return this.linksAll ? this.currentLinks : this.currentLinks.slice(0, LINKS_SHOWN);
+    },
   },
 
   watch: {
@@ -45,6 +67,7 @@ export default {
           this.opened = { ...this.opened, [id]: true };
         }
         this.closing = '';
+        this.linksAll = false;
       },
     },
 
@@ -69,6 +92,11 @@ export default {
 
     stateOf(id) {
       return this.activity[id] || 'none';
+    },
+
+    /** "PR", "Preview", … - the subject chip says what the subject is (a PR or an issue). */
+    linkKind(link) {
+      return link.kind === 'subject' ? (link.sub === 'issue' ? 'Issue' : 'PR') : LINK_KIND[link.kind] || '';
     },
 
     stateLabel(id) {
@@ -194,6 +222,35 @@ export default {
         New chat
       </button>
     </div>
+
+    <nav
+      v-if="currentLinks.length"
+      class="chats__links"
+      aria-label="Links in this chat"
+      data-testid="chat-links"
+    >
+      <a
+        v-for="link in shownLinks"
+        :key="link.key"
+        class="chats__link"
+        :class="`chats__link--${ link.kind }`"
+        :href="link.url"
+        :title="link.url"
+        target="_blank"
+        rel="noopener noreferrer"
+      ><span
+        v-if="linkKind(link)"
+        class="chats__link-kind"
+      >{{ linkKind(link) }}</span>{{ link.label }}</a>
+      <button
+        v-if="currentLinks.length > LINKS_SHOWN"
+        type="button"
+        class="chats__link-more"
+        @click="linksAll = !linksAll"
+      >
+        {{ linksAll ? 'Fewer' : `+${ currentLinks.length - LINKS_SHOWN } more` }}
+      </button>
+    </nav>
 
     <main class="chats__body">
       <p
@@ -386,6 +443,69 @@ export default {
         color:       var(--conv-on-ink);
         font-weight: 600;
       }
+    }
+
+    // The chat's links: what it is about first (ink), then previews (mint), pages and pull requests
+    // (the mockup's review blue), CI (its question peach), the rest plain.
+    &__links {
+      display:       flex;
+      flex-wrap:     wrap;
+      align-items:   center;
+      gap:           6px;
+      padding:       8px 16px;
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-surface);
+    }
+
+    &__link {
+      display:         inline-flex;
+      align-items:     center;
+      gap:             6px;
+      max-width:       320px;
+      padding:         3px 10px;
+      overflow:        hidden;
+      border:          1px solid var(--conv-line);
+      border-radius:   14px;
+      background:      var(--conv-surface);
+      color:           var(--conv-text);
+      font-size:       12px;
+      text-decoration: none;
+      text-overflow:   ellipsis;
+      white-space:     nowrap;
+
+      &:hover { border-color: var(--conv-ink); }
+
+      &--subject {
+        border-color: var(--conv-ink);
+        background:   var(--conv-ink);
+        color:        var(--conv-on-ink);
+
+        .chats__link-kind { color: var(--conv-mint); }
+      }
+
+      &--preview { border-color: var(--conv-mint-line); background: var(--conv-mint); }
+      &--page,
+      &--pr,
+      &--issue { border-color: transparent; background: var(--conv-review-bg); color: var(--conv-review); }
+      &--ci { border-color: transparent; background: var(--conv-question-bg); color: var(--conv-question); }
+      &--jira { border-color: transparent; background: var(--conv-blocked-bg); color: var(--conv-blocked); }
+    }
+
+    &__link-kind {
+      font-size:      10px;
+      font-weight:    600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity:        0.8;
+    }
+
+    &__link-more {
+      padding:    2px 6px;
+      border:     0;
+      background: none;
+      color:      var(--conv-link);
+      cursor:     pointer;
+      font-size:  12px;
     }
 
     &__body {

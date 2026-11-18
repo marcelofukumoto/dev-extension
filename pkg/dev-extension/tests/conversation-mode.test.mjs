@@ -160,3 +160,74 @@ test('ago reads as people say it', () => {
   assert.equal(ago('2026-11-16T12:00:00Z', now), '2d ago');
   assert.equal(ago('', now), '');
 });
+
+// ── links and titles (linkify.mjs) ─────────────────────────────────────────────────────────────
+import {
+  extractUrls, githubRef, classifyUrl, chatLinks, titleFromMessage, isDefaultTitle
+} from '../conversation-mode/linkify.mjs';
+
+test('urls come out of prose without the punctuation around them', () => {
+  assert.deepEqual(extractUrls('See https://github.com/a/b/pull/1. And (https://x.io/y), twice https://github.com/a/b/pull/1.'), [
+    'https://github.com/a/b/pull/1', 'https://x.io/y',
+  ]);
+  assert.deepEqual(extractUrls('`https://c.d/e`'), ['https://c.d/e']);
+});
+
+test('a GitHub pull request or issue is found under any of its pages', () => {
+  assert.deepEqual(githubRef('https://github.com/harvester/harvester-ui-extension/pull/1261/files#diff-1'), {
+    repo: 'harvester/harvester-ui-extension', number: 1261, kind: 'pr', url: 'https://github.com/harvester/harvester-ui-extension/pull/1261'
+  });
+  assert.equal(githubRef('https://github.com/rancher/dashboard/issues/19000#issuecomment-1').kind, 'issue');
+  assert.equal(githubRef('https://github.com/rancher/dashboard'), null);
+});
+
+test('links are named for what they are', () => {
+  assert.deepEqual(classifyUrl('https://github.com/rancher/dashboard/pull/19830').label, 'dashboard#19830');
+  assert.equal(classifyUrl('https://github.com/rancher/dashboard/actions/runs/123/job/9').kind, 'ci');
+  assert.equal(classifyUrl('https://github.com/rancher/dashboard/actions/runs/123/job/9').url, 'https://github.com/rancher/dashboard/actions/runs/123');
+  assert.deepEqual(classifyUrl('https://jira.suse.com/browse/SURE-12135').label, 'SURE-12135');
+  assert.equal(classifyUrl('https://rancherpr1261r.mf-created-dashboard.ui.rancher.space/dashboard/').kind, 'preview');
+  assert.equal(classifyUrl('https://rancherpr1261r.mf-created-dashboard.ui.rancher.space/dashboard/').label, 'pr1261');
+  assert.equal(classifyUrl('https://pr1218-review-three.mf-main.ui.rancher.space/').kind, 'page');
+  assert.equal(classifyUrl('https://mf-dev.ui.rancher.space/dashboard/').kind, 'env');
+  assert.equal(classifyUrl('https://docs.harvesterhci.io/v1.6/').kind, 'doc');
+  assert.equal(classifyUrl('https://example.com/a').kind, 'other');
+});
+
+test('a chat\'s chips: subject first, then previews and pages, one chip per thing', () => {
+  const chips = chatLinks({
+    subject: { url: 'https://github.com/harvester/harvester-ui-extension/pull/1261' },
+    saved:   [{ label: 'review page', url: 'https://pr1261-review.mf-main.ui.rancher.space/' }],
+    urls:    [
+      'https://github.com/harvester/harvester-ui-extension/pull/1261/files',
+      'https://rancherpr1261r.mf-created-dashboard.ui.rancher.space/dashboard/c/local',
+      'https://rancherpr1261r.mf-created-dashboard.ui.rancher.space/dashboard/home',
+      'https://github.com/harvester/harvester/issues/12350',
+      'https://github.com/harvester/harvester-ui-extension/actions/runs/77',
+    ],
+  });
+
+  assert.deepEqual(chips.map((c) => `${ c.kind }:${ c.label }`), [
+    'subject:harvester-ui-extension#1261', 'preview:pr1261', 'page:review page', 'issue:harvester#12350', 'ci:harvester-ui-extension run',
+  ]);
+});
+
+test('a title from the first thing the message says', () => {
+  assert.equal(titleFromMessage('\n## Fix the **flaky** e2e on master\nmore'), 'Fix the flaky e2e on master');
+  assert.equal(titleFromMessage('Look at https://github.com/a/b/pull/1 please'), 'Look at please');
+  assert.ok(titleFromMessage('word '.repeat(40)).endsWith('…'));
+  assert.ok(titleFromMessage('word '.repeat(40)).length <= 60);
+  assert.equal(titleFromMessage('ok'), '');
+  assert.equal(isDefaultTitle('Chat 3'), true);
+  assert.equal(isDefaultTitle('Chat 3 review'), false);
+});
+
+test('a pasted image or file is not a title, and references become links', async() => {
+  const { extractRefs } = await import('../conversation-mode/linkify.mjs');
+
+  assert.equal(titleFromMessage('/workspace/.images/p-lte-duty-3/2026-11-18T16-20-31-603Z.jpg \nCan we check the PRs we have here'), 'Can we check the PRs we have here');
+  assert.deepEqual(extractRefs('follow-up harvester/harvester#12350, and (rancher/dashboard#19830).'), [
+    'https://github.com/harvester/harvester/issues/12350', 'https://github.com/rancher/dashboard/issues/19830',
+  ]);
+  assert.deepEqual(extractRefs('a path like src/app#3 inside code is also a ref; plain #12 is not'), ['https://github.com/src/app/issues/3']);
+});

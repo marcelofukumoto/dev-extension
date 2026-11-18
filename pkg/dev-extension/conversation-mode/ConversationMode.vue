@@ -22,11 +22,47 @@ import {
 } from '../config/constants';
 import { CONVERSATION_ROUTE } from './routes';
 import { CONVERSATION_WORKSPACE, nextChatTitle } from './config.mjs';
-import { subjectKey, chatTitleFor, openingMessage } from './projects.mjs';
+import {
+  PROJECTS, mergeWork, subjectKey, chatTitleFor, openingMessage
+} from './projects.mjs';
+import {
+  extractUrls, githubRef, titleFromMessage, isDefaultTitle, chatLinks
+} from './linkify.mjs';
 import { readLinks, updateLinks } from './links';
+import { readTranscripts } from './transcripts';
+import { myWork, pullRequest, issuesByNumber } from '../github';
 
 /** How often what each agent is doing is asked again. */
 const STATE_POLL_MS = 5000;
+
+/** How often the transcripts are read: the links bar and the chats' names come from them. */
+const TRANSCRIPT_POLL_MS = 20000;
+
+/** GitHub in the background, whichever view is showing. */
+const WORK_REFRESH_MS = 10 * 60 * 1000;
+
+/** After a chat finishes a turn, GitHub again - but not more often than this. */
+const WORK_AFTER_TURN_MS = 2 * 60 * 1000;
+
+/** And a moment after the turn, so a push or a comment it made has landed. */
+const WORK_AFTER_TURN_DELAY_MS = 15000;
+
+/** The last answer, kept in this browser so the dashboard draws at once on the next visit. */
+const WORK_CACHE_KEY = 'conversation-mode.work.v1';
+
+/** What is asked of GitHub per product, one query each: see loadWork(). */
+const SECTIONS = [
+  { label: 'pull requests', sections: ['mine'] },
+  { label: 'reviews', sections: ['reviewing'] },
+  { label: 'issues', sections: ['issues'] },
+];
+
+/** GitHub queries in flight at once. */
+const CONCURRENCY = 3;
+
+const EMPTY_WORK = () => ({
+  login: '', mine: [], reviewing: [], issues: []
+});
 
 export default {
   name: 'ConversationMode',
@@ -45,17 +81,36 @@ export default {
       error:        '',
       /** Whether the chats view has been shown yet: it is mounted then and kept. */
       chatsShown:   false,
+      /** GitHub, as myWork() answers it - owned here so it outlives a switch of view. */
+      work:         EMPTY_WORK(),
+      workErrors:   [],
+      workLoading:  false,
+      workLoadedAt: 0,
+      /** What each chat's transcript says (transcripts.ts): its first message and its links. */
+      transcripts:  {},
+      /** Chats this page has already tried to name, so a failed rename is not retried every poll. */
+      titled:       {},
     };
   },
 
   async mounted() {
+    this.loadCachedWork();
     await Promise.all([this.loadChats(), this.loadLinks()]);
     this.poll = setInterval(() => this.refreshStates(), STATE_POLL_MS);
+    this.transcriptPoll = setInterval(() => this.refreshTranscripts(), TRANSCRIPT_POLL_MS);
+    this.workPoll = setInterval(() => this.loadWork(), WORK_REFRESH_MS);
     this.refreshStates();
+    this.refreshTranscripts();
+    if (Date.now() - this.workLoadedAt > WORK_REFRESH_MS) {
+      this.loadWork();
+    }
   },
 
   beforeUnmount() {
     clearInterval(this.poll);
+    clearInterval(this.transcriptPoll);
+    clearInterval(this.workPoll);
+    clearTimeout(this.workSoon);
   },
 
   computed: {
@@ -90,6 +145,19 @@ export default {
 
     waiting() {
       return this.chats.filter((c) => this.activity[c.id] === 'input').length;
+    },
+
+    /** Each chat's links, as the links bar shows them (linkify.mjs). */
+    chatLinksById() {
+      const out = {};
+
+      for (const chat of this.chats) {
+        const linked = this.links[chat.id] || {};
+
+        out[chat.id] = chatLinks({ subject: linked.subject, saved: linked.links || [], urls: this.transcripts[chat.id]?.urls || [] });
+      }
+
+      return out;
     },
   },
 
@@ -166,7 +234,159 @@ export default {
           activity[s.id] = agentStateOf(s);
         }
       }
+      // A chat that was working and stopped has probably done something on GitHub - pushed,
+      // commented, opened a pull request - so the dashboard asks again, soon and not too often.
+      const finished = Object.keys(this.activity).some((id) => this.activity[id] === 'working' && activity[id] && activity[id] !== 'working');
+
       this.activity = activity;
+      if (finished) {
+        this.workAfterTurn();
+        this.refreshTranscripts();
+      }
+    },
+
+    /* ── GitHub ─────────────────────────────────────────────────────────────────────────────── */
+
+    loadCachedWork() {
+      try {
+        const cached = JSON.parse(window.localStorage.getItem(WORK_CACHE_KEY) || 'null');
+
+        if (cached?.work && cached.at) {
+          this.work = { ...EMPTY_WORK(), ...cached.work };
+          this.workLoadedAt = cached.at;
+        }
+      } catch {
+        // A private window or blocked storage: the first load draws it instead.
+      }
+    },
+
+    /**
+     * GitHub, one question per product and per section, three at a time.
+     *
+     * myWork() with every section is one GraphQL query of four searches, and GitHub gives a query
+     * ten seconds: Rancher's and Harvester's answered 502/504 after 10-11s that way, while each
+     * section on its own answers in one to three. A 502/503/504 is asked once more before it is
+     * shown. What fails keeps nothing back: what answered is shown, and the errors say what is
+     * missing.
+     */
+    async loadWork() {
+      if (this.workLoading) {
+        return;
+      }
+      this.workLoading = true;
+      clearTimeout(this.workSoon);
+      const jobs = PROJECTS.flatMap((p) => SECTIONS.map((sec) => ({ p, sec })));
+      const settled = new Array(jobs.length);
+      let next = 0;
+      const ask = async({ p, sec }) => {
+        try {
+          return await myWork(p.repos, [], sec.sections);
+        } catch (e) {
+          if (!/ 50[234]\b/.test(e?.message || '')) {
+            throw e;
+          }
+          await new Promise((done) => setTimeout(done, 1500));
+
+          return myWork(p.repos, [], sec.sections);
+        }
+      };
+
+      await Promise.all(Array.from({ length: CONCURRENCY }, async() => {
+        while (next < jobs.length) {
+          const at = next++;
+
+          settled[at] = await ask(jobs[at]).then((value) => ({ value }), (reason) => ({ reason }));
+        }
+      }));
+      this.workErrors = settled
+        .map((r, i) => (r.reason ? `${ jobs[i].p.name } ${ jobs[i].sec.label }: ${ r.reason?.message || r.reason }` : ''))
+        .filter(Boolean);
+      const answers = settled.map((r) => r.value || null);
+
+      if (answers.some(Boolean)) {
+        this.work = mergeWork(answers);
+        this.workLoadedAt = Date.now();
+        try {
+          // Without the bodies: a pull request's description is most of its size and nothing here
+          // draws it.
+          const slim = (list) => list.map(({ body, ...rest }) => rest);
+
+          window.localStorage.setItem(WORK_CACHE_KEY, JSON.stringify({
+            at: this.workLoadedAt, work: { ...this.work, mine: slim(this.work.mine), reviewing: slim(this.work.reviewing), issues: slim(this.work.issues) }
+          }));
+        } catch {
+          // Storage full or blocked: the next visit loads it again.
+        }
+      }
+      this.workLoading = false;
+    },
+
+    workAfterTurn() {
+      if (Date.now() - this.workLoadedAt < WORK_AFTER_TURN_MS || this.workSoon) {
+        return;
+      }
+      this.workSoon = setTimeout(() => {
+        this.workSoon = null;
+        this.loadWork();
+      }, WORK_AFTER_TURN_DELAY_MS);
+    },
+
+    /* ── Transcripts: links and names ─────────────────────────────────────────────────────── */
+
+    async refreshTranscripts() {
+      if (!this.chats.length || this.readingTranscripts) {
+        return;
+      }
+      this.readingTranscripts = true;
+      try {
+        this.transcripts = await readTranscripts(this.chats.map((c) => c.id));
+        await this.nameChats();
+      } catch {
+        // The agent pod is restarting, or an exec was cut short: the next poll reads them again.
+      } finally {
+        this.readingTranscripts = false;
+      }
+    },
+
+    /**
+     * A chat still called "Chat 3" takes its name from its first message, once: the pull request or
+     * issue it names (then it is linked to it too, so the dashboard opens it from that row), or the
+     * first thing it says. A chat somebody renamed is never touched.
+     */
+    async nameChats() {
+      for (const chat of this.chats) {
+        const first = this.transcripts[chat.id]?.first || '';
+
+        if (!first || !isDefaultTitle(chat.title) || this.titled[chat.id]) {
+          continue;
+        }
+        this.titled = { ...this.titled, [chat.id]: true };
+        const ref = extractUrls(first).map(githubRef).find(Boolean);
+        let title = '';
+
+        if (ref) {
+          let refTitle = '';
+
+          try {
+            refTitle = ref.kind === 'pr' ? (await pullRequest(ref.repo, ref.number)).title : ((await issuesByNumber(ref.repo, [ref.number]))[0]?.title || '');
+          } catch {
+            refTitle = '';
+          }
+          const subject = { ...ref, title: refTitle };
+
+          title = chatTitleFor(subject);
+          if (!this.links[chat.id]?.subject) {
+            this.links = await updateLinks((links) => {
+              links[chat.id] = { ...(links[chat.id] || {}), subject };
+            }).catch(() => this.links);
+          }
+        } else {
+          title = titleFromMessage(first);
+        }
+        if (title) {
+          await this.renameChat({ id: chat.id, title });
+        }
+      }
     },
 
     /**
@@ -343,15 +563,20 @@ export default {
     </p>
 
     <ConversationDashboard
-      v-if="view === 'dashboard'"
+      v-show="view === 'dashboard'"
       :chats="chats"
       :activity="activity"
       :links="links"
       :name="firstName"
       :starting="starting"
+      :work="work"
+      :errors="workErrors"
+      :loading="workLoading"
+      :loaded-at="workLoadedAt"
       @open-chat="openChat"
       @start-chat="createChat"
       @new-chat="createChat()"
+      @reload="loadWork"
     />
     <ConversationChats
       v-if="chatsShown"
@@ -359,6 +584,7 @@ export default {
       :chats="chats"
       :activity="activity"
       :links="links"
+      :chat-links="chatLinksById"
       :current="current"
       :loading="loadingChats"
       :creating="creating"

@@ -1,28 +1,14 @@
 <script>
 // Conversation mode's dashboard: what is going on, and the way into the chat about each thing.
 //
-// GitHub is asked the way My Work asks it (github.ts, myWork), once per product in projects.mjs,
-// with the signed-in person's token. The chats, what each agent is doing and which chat is about
-// which pull request come from the page around this (ConversationMode.vue). Every row that has a
+// Everything it draws comes from the page around it (ConversationMode.vue): GitHub as myWork()
+// answered it - loaded there once, kept across a switch of view and refreshed in the background -
+// the chats, what each agent is doing and which chat is about which pull request. Every row that has a
 // chat opens it; every row that has none can start one, named for it and opened with its link.
 import AppIcon from '../components/focus/AppIcon.vue';
-import { myWork } from '../github';
 import {
-  PROJECTS, mergeWork, attentionRows, chatsBySubject, subjectKey, subjectOf, shortRef, checksState, reviewState, pushedSinceReview, projectOf, ago, greeting
+  PROJECTS, attentionRows, chatsBySubject, subjectKey, subjectOf, shortRef, checksState, reviewState, pushedSinceReview, projectOf, ago, greeting
 } from './projects.mjs';
-
-/** GitHub again every five minutes while the dashboard is open. */
-const REFRESH_MS = 5 * 60 * 1000;
-
-/** What is asked of GitHub per product, one query each: see load(). */
-const SECTIONS = [
-  { label: 'pull requests', sections: ['mine'] },
-  { label: 'reviews', sections: ['reviewing'] },
-  { label: 'issues', sections: ['issues'] },
-];
-
-/** GitHub queries in flight at once. */
-const CONCURRENCY = 3;
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
@@ -48,7 +34,7 @@ export default {
 
   components: { AppIcon },
 
-  emits: ['open-chat', 'start-chat', 'new-chat'],
+  emits: ['open-chat', 'start-chat', 'new-chat', 'reload'],
 
   props: {
     chats:    { type: Array, default: () => [] },
@@ -56,16 +42,14 @@ export default {
     links:    { type: Object, default: () => ({}) },
     name:     { type: String, default: '' },
     starting: { type: String, default: '' },
+    work:     { type: Object, default: () => ({ login: '', mine: [], reviewing: [], issues: [] }) },
+    errors:   { type: Array, default: () => [] },
+    loading:  { type: Boolean, default: false },
+    loadedAt: { type: Number, default: 0 },
   },
 
   data() {
     return {
-      work:      {
-        login: '', mine: [], reviewing: [], issues: []
-      },
-      errors:    [],
-      loading:   true,
-      loadedAt:  0,
       now:       Date.now(),
       filter:    'all',
       prTab:     'mine',
@@ -74,16 +58,13 @@ export default {
     };
   },
 
-  async mounted() {
-    await this.load();
-    this.timer = setInterval(() => this.load(), REFRESH_MS);
+  mounted() {
     this.clock = setInterval(() => {
       this.now = Date.now();
     }, 30000);
   },
 
   beforeUnmount() {
-    clearInterval(this.timer);
     clearInterval(this.clock);
   },
 
@@ -163,53 +144,6 @@ export default {
   },
 
   methods: {
-    /**
-     * One question per product and per section, three at a time.
-     *
-     * myWork() with every section is one GraphQL query of four searches, and GitHub gives a query
-     * ten seconds: for Rancher and Harvester that one query answered 502/504 after 10-11s, while
-     * each section on its own answers in one to three. Three at a time keeps clear of GitHub's
-     * limit on concurrent requests, and a 502/504 is asked once more before it is shown.
-     */
-    async load() {
-      this.loading = true;
-      const jobs = PROJECTS.flatMap((p) => SECTIONS.map((s) => ({ p, s })));
-      const settled = new Array(jobs.length);
-      let next = 0;
-      const ask = async({ p, s }) => {
-        try {
-          return await myWork(p.repos, [], s.sections);
-        } catch (e) {
-          if (!/ 50[234]\b/.test(e?.message || '')) {
-            throw e;
-          }
-          await new Promise((done) => setTimeout(done, 1500));
-
-          return myWork(p.repos, [], s.sections);
-        }
-      };
-
-      await Promise.all(Array.from({ length: CONCURRENCY }, async() => {
-        while (next < jobs.length) {
-          const at = next++;
-
-          settled[at] = await ask(jobs[at]).then((value) => ({ value }), (reason) => ({ reason }));
-        }
-      }));
-
-      this.errors = settled
-        .map((r, i) => (r.reason ? `${ jobs[i].p.name } ${ jobs[i].s.label }: ${ r.reason?.message || r.reason }` : ''))
-        .filter(Boolean);
-      const answers = settled.map((r) => r.value || null);
-
-      // Something that failed keeps nothing rather than the whole page emptying: what did answer
-      // is shown, and the errors say what is missing.
-      if (answers.some(Boolean)) {
-        this.work = mergeWork(answers);
-        this.loadedAt = Date.now();
-      }
-      this.loading = false;
-    },
 
     byProject(list, cap = Infinity) {
       return PROJECTS.map((p) => {
@@ -305,7 +239,7 @@ export default {
           {{ hello }}
         </h1>
         <p class="dash__summary">
-          <template v-if="loading && !loadedAt">
+          <template v-if="!loadedAt">
             Asking GitHub what is going on…
           </template>
           <template v-else>
@@ -317,7 +251,7 @@ export default {
                 class="dash__link"
                 :disabled="loading"
                 data-testid="conversation-dashboard-refresh"
-                @click="load"
+                @click="$emit('reload')"
               >{{ loading ? 'refreshing…' : 'refresh' }}</button>
             </span>
           </template>
@@ -371,7 +305,7 @@ export default {
           v-if="!shownAttention.length"
           class="dash__none"
         >
-          {{ loading && !loadedAt ? 'Loading…' : 'Nothing here.' }}
+          {{ !loadedAt ? 'Loading…' : 'Nothing here.' }}
         </p>
         <ul class="dash__rows">
           <li
@@ -504,7 +438,7 @@ export default {
         v-if="!prGroups.length"
         class="dash__none"
       >
-        {{ loading && !loadedAt ? 'Loading…' : 'None.' }}
+        {{ !loadedAt ? 'Loading…' : 'None.' }}
       </p>
       <div
         v-for="g in prGroups"
@@ -579,7 +513,7 @@ export default {
         v-if="!issueGroups.length"
         class="dash__none"
       >
-        {{ loading && !loadedAt ? 'Loading…' : 'None.' }}
+        {{ !loadedAt ? 'Loading…' : 'None.' }}
       </p>
       <div
         v-for="g in issueGroups"
