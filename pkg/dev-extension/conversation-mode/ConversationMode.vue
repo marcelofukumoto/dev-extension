@@ -366,6 +366,14 @@ export default {
 </template>
 
 <style lang="scss" scoped>
+
+  // Rancher's global `button` rule gives every button a 40px min-height and its own line-height;
+  // these are compact, and only this component's own buttons are touched (scoped), never the
+  // chat's.
+  .conv button {
+    min-height:  0;
+    line-height: 1.4;
+  }
   // The mockup's greens. `ink` is the dark pine its primary buttons use; in Rancher's dark theme
   // that would vanish, so there it is the brighter green with dark text on it.
   .conv {

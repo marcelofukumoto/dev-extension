@@ -238,6 +238,14 @@ export default {
 </template>
 
 <style lang="scss" scoped>
+
+  // Rancher's global `button` rule gives every button a 40px min-height and its own line-height;
+  // these are compact, and only this component's own buttons are touched (scoped), never the
+  // chat's.
+  .chats button {
+    min-height:  0;
+    line-height: 1.4;
+  }
   .chats {
     display:        flex;
     flex:           1 1 auto;

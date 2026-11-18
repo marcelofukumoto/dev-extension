@@ -24,6 +24,9 @@ const SECTIONS = [
 /** GitHub queries in flight at once. */
 const CONCURRENCY = 3;
 
+/** Rows of "Needs your attention" shown before "Show all". */
+const ATTENTION_SHOWN = 10;
+
 const KIND_LABEL = {
   question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', ready: 'Ready'
 };
@@ -67,6 +70,7 @@ export default {
       filter:    'all',
       prTab:     'mine',
       issuesAll: false,
+      attentionAll: false,
     };
   },
 
@@ -100,10 +104,15 @@ export default {
       return attentionRows(this.work, this.chats, this.activity, this.links);
     },
 
-    shownAttention() {
+    filteredAttention() {
       const f = FILTERS.find((x) => x.id === this.filter);
 
       return f?.kinds ? this.attention.filter((r) => f.kinds.includes(r.kind)) : this.attention;
+    },
+
+    /** The most urgent first, ATTENTION_SHOWN of them unless all were asked for. */
+    shownAttention() {
+      return this.attentionAll ? this.filteredAttention : this.filteredAttention.slice(0, ATTENTION_SHOWN);
     },
 
     counts() {
@@ -413,6 +422,15 @@ export default {
             </div>
           </li>
         </ul>
+        <button
+          v-if="filteredAttention.length > shownAttention.length || attentionAll && filteredAttention.length > 10"
+          type="button"
+          class="dash__link dash__more"
+          data-testid="attention-show-all"
+          @click="attentionAll = !attentionAll"
+        >
+          {{ attentionAll ? 'Show the first 10' : `Show all ${ filteredAttention.length }` }}
+        </button>
       </section>
 
       <section class="dash__card dash__chats">
@@ -610,6 +628,14 @@ export default {
 </template>
 
 <style lang="scss" scoped>
+
+  // Rancher's global `button` rule gives every button a 40px min-height and its own line-height;
+  // these are compact, and only this component's own buttons are touched (scoped), never the
+  // chat's.
+  .dash button {
+    min-height:  0;
+    line-height: 1.4;
+  }
   .dash {
     flex:       1 1 auto;
     min-height: 0;
@@ -839,6 +865,10 @@ export default {
         color:        var(--conv-on-ink);
         font-weight:  600;
       }
+    }
+
+    &__more {
+      margin-top: 8px;
     }
 
     &__link {
