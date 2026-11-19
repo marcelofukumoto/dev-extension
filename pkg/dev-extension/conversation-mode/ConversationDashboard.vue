@@ -537,6 +537,7 @@ export default {
             v-for="row in shownAttention"
             :key="row.kind + row.key"
             class="dash__row"
+            :class="{ 'dash__row--chat': row.chatId }"
             :data-testid="`attention-${ row.kind }`"
           >
             <span
@@ -1169,8 +1170,15 @@ export default {
       flex-wrap:   wrap;
       align-items: center;
       gap:         12px;
-      padding:     10px 0;
+      margin:      0 -12px;
+      padding:     10px 12px;
       border-top:  1px solid var(--border);
+
+      // Already has a chat: the chats' mint, and the agent's green down the edge.
+      &--chat {
+        background: var(--conv-mint);
+        box-shadow: inset 3px 0 0 var(--conv-accent);
+      }
     }
 
     &__kind {

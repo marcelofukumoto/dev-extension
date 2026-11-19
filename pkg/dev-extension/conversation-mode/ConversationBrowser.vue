@@ -355,6 +355,7 @@ export default {
             <tr
               v-for="x in filtered"
               :key="x.key || refOf(x)"
+              :class="{ 'br__row--chat': chatOf(x) }"
             >
               <td class="br__td-title">
                 <button
@@ -608,6 +609,18 @@ export default {
         border-top:     1px solid var(--conv-line);
         vertical-align: middle;
       }
+
+      th:first-child,
+      td:first-child {
+        padding-left: 10px;
+      }
+    }
+
+    // Already has a chat: the chats' mint, and the agent's green down the edge.
+    &__row--chat td {
+      background: var(--conv-mint);
+
+      &:first-child { box-shadow: inset 3px 0 0 var(--conv-accent); }
     }
 
     &__td-title {
