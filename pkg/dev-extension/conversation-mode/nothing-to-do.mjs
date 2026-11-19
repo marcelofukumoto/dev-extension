@@ -15,6 +15,7 @@
 //   marks:   { <row key>: { kind, stamp, reason, at, title } }
 //   reasons: { <reason>: { used, last } }
 //   history: [{ reason, kind, draft, repo, author, why, at }]   (the newest HISTORY_KEPT)
+//   hidden:  [<starter reason deleted by hand>]
 
 export const HISTORY_KEPT = 300;
 
@@ -35,7 +36,9 @@ export const DRAFT_REASON = STARTER_REASONS[0];
 const REVIEW_KINDS = new Set(['review', 'rereview', 'maintain', 'waiting']);
 
 export function emptyMarks() {
-  return { marks: {}, reasons: {}, history: [] };
+  return {
+    marks: {}, reasons: {}, history: [], hidden: []
+  };
 }
 
 /** A question's stamp: the last thing its agent did. (A pull request's is projects.mjs's prStamp.) */
@@ -122,7 +125,74 @@ export function reasonList(doc, max = 8) {
     .sort((a, b) => (b[1].used - a[1].used) || String(b[1].last).localeCompare(String(a[1].last)))
     .map(([reason]) => reason);
 
-  return [...used, ...STARTER_REASONS.filter((r) => !used.includes(r))].slice(0, max);
+  return [...used, ...STARTER_REASONS.filter((r) => !used.includes(r) && !(doc?.hidden || []).includes(r))].slice(0, max);
+}
+
+/**
+ * Every reason there is, for editing: `{ reason, used, marked }` - how often it was given, and how
+ * many rows carry it now - most used first, then the starters nobody has used or deleted.
+ */
+export function reasonsForEditing(doc) {
+  const marked = {};
+
+  for (const m of Object.values(doc?.marks || {})) {
+    marked[m.reason] = (marked[m.reason] || 0) + 1;
+  }
+
+  return reasonList(doc, Infinity).map((reason) => ({ reason, used: doc?.reasons?.[reason]?.used || 0, marked: marked[reason] || 0 }));
+}
+
+/**
+ * Call a reason something else (edits `doc`): the rows marked with it, and what the suggestions
+ * learned from it, follow. Renamed to one that exists, the two become one.
+ */
+export function renameReason(doc, from, to) {
+  const text = String(to || '').trim();
+
+  if (!text || text === from) {
+    return doc;
+  }
+  doc.reasons ||= {};
+  const a = doc.reasons[from];
+  const b = doc.reasons[text];
+
+  if (a || b) {
+    doc.reasons[text] = {
+      used: (a?.used || 0) + (b?.used || 0), last: [a?.last, b?.last].filter(Boolean).sort().pop() || ''
+    };
+  }
+  delete doc.reasons[from];
+  for (const h of doc.history || []) {
+    if (h.reason === from) {
+      h.reason = text;
+    }
+  }
+  for (const m of Object.values(doc.marks || {})) {
+    if (m.reason === from) {
+      m.reason = text;
+    }
+  }
+  if (STARTER_REASONS.includes(from)) {
+    doc.hidden = [...new Set([...(doc.hidden || []), from])];
+  }
+
+  return doc;
+}
+
+/**
+ * Stop offering a reason (edits `doc`): out of the list and the suggestions. The rows marked with
+ * it stay marked, and say so.
+ */
+export function removeReason(doc, reason) {
+  if (doc.reasons) {
+    delete doc.reasons[reason];
+  }
+  doc.history = (doc.history || []).filter((h) => h.reason !== reason);
+  if (STARTER_REASONS.includes(reason)) {
+    doc.hidden = [...new Set([...(doc.hidden || []), reason])];
+  }
+
+  return doc;
 }
 
 /** Mark a row "Nothing to do" (edits `doc`). */

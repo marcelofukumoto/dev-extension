@@ -14,7 +14,8 @@ import {
 import { railSections, isArchived } from './rail.mjs';
 import { doingText } from './transcript-read.mjs';
 import {
-  emptyMarks, withQuestionStamps, isQuiet, quietKeys, suggestion, reasonList, mark, unmark, prune
+  emptyMarks, withQuestionStamps, isQuiet, quietKeys, suggestion, reasonList, mark, unmark, prune,
+  reasonsForEditing, renameReason, removeReason
 } from './nothing-to-do.mjs';
 import { updateMarks } from './marks';
 
@@ -73,6 +74,10 @@ export default {
       repos:     [],
       /** "Nothing to do" (nothing-to-do.mjs): what is being marked now. */
       marking:    '',
+      /** The reasons' editor: open or not, and the one being renamed (to what). */
+      editingReasons: false,
+      reasonFrom:     '',
+      reasonTo:       '',
       markReason: '',
       markSaving: false,
       markError:  '',
@@ -136,6 +141,10 @@ export default {
 
     reasons() {
       return reasonList(this.marks);
+    },
+
+    reasonRows() {
+      return reasonsForEditing(this.marks);
     },
 
     /** The rows in the chosen repositories (all of them when none is chosen). */
@@ -386,6 +395,44 @@ export default {
       }
     },
 
+    startRename(reason) {
+      this.reasonFrom = reason;
+      this.reasonTo = reason;
+      this.markError = '';
+    },
+
+    async saveRename() {
+      const from = this.reasonFrom;
+      const to = this.reasonTo;
+
+      await this.changeReasons((doc) => renameReason(doc, from, to));
+      if (!this.markError) {
+        this.reasonFrom = '';
+        if (this.markReason === from) {
+          this.markReason = to.trim();
+        }
+      }
+    },
+
+    deleteReason(reason) {
+      return this.changeReasons((doc) => removeReason(doc, reason));
+    },
+
+    async changeReasons(change) {
+      if (this.markSaving) {
+        return;
+      }
+      this.markSaving = true;
+      this.markError = '';
+      try {
+        this.$emit('marks', await updateMarks(change));
+      } catch (e) {
+        this.markError = e?.message || String(e);
+      } finally {
+        this.markSaving = false;
+      }
+    },
+
     isQuietRow(row) {
       return isQuiet(row, this.marks);
     },
@@ -527,6 +574,104 @@ export default {
           </button>
         </div>
         <p
+          v-if="filter === 'quiet' && !editingReasons"
+          class="dash__quiet-bar"
+        >
+          Marked because there was nothing to work on; each comes back when anything happens to it.
+          <button
+            type="button"
+            class="dash__link"
+            data-testid="reasons-edit"
+            @click="editingReasons = true"
+          >
+            Edit reasons
+          </button>
+        </p>
+        <div
+          v-if="editingReasons"
+          class="dash__reasons"
+          data-testid="reasons-editor"
+        >
+          <div class="dash__reasons-head">
+            <strong>Reasons for Nothing to do</strong>
+            <button
+              type="button"
+              class="dash__link"
+              data-testid="reasons-done"
+              @click="editingReasons = false; reasonFrom = ''"
+            >
+              Done
+            </button>
+          </div>
+          <p class="dash__mark-help">
+            Renaming changes the rows marked with it too. Deleting stops offering and suggesting it; rows already marked with it stay marked.
+          </p>
+          <ul class="dash__reasons-list">
+            <li
+              v-for="r in reasonRows"
+              :key="r.reason"
+              class="dash__reasons-row"
+              data-testid="reasons-row"
+            >
+              <template v-if="reasonFrom === r.reason">
+                <input
+                  v-model="reasonTo"
+                  class="dash__mark-input"
+                  type="text"
+                  aria-label="New name for the reason"
+                  data-testid="reasons-input"
+                  @keydown.enter="saveRename"
+                  @keydown.esc="reasonFrom = ''"
+                >
+                <button
+                  type="button"
+                  class="dash__btn dash__btn--primary"
+                  :disabled="markSaving || !reasonTo.trim()"
+                  data-testid="reasons-save"
+                  @click="saveRename"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  class="dash__btn"
+                  @click="reasonFrom = ''"
+                >
+                  Cancel
+                </button>
+              </template>
+              <template v-else>
+                <span class="dash__reasons-text">{{ r.reason }}</span>
+                <span class="dash__muted">{{ r.used ? `used ${ r.used }×` : 'not used yet' }}{{ r.marked ? ` · on ${ r.marked } row${ r.marked === 1 ? '' : 's' } now` : '' }}</span>
+                <button
+                  type="button"
+                  class="dash__link"
+                  :disabled="markSaving"
+                  data-testid="reasons-rename"
+                  @click="startRename(r.reason)"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  class="dash__link dash__link--danger"
+                  :disabled="markSaving"
+                  data-testid="reasons-delete"
+                  @click="deleteReason(r.reason)"
+                >
+                  Delete
+                </button>
+              </template>
+            </li>
+          </ul>
+          <p
+            v-if="markError && !marking"
+            class="dash__error"
+          >
+            {{ markError }}
+          </p>
+        </div>
+        <p
           v-if="!shownAttention.length"
           class="dash__none"
         >
@@ -599,6 +744,13 @@ export default {
               >
                 <p class="dash__mark-help">
                   Checked, and there is nothing to work on? It leaves this list until anything happens to it - a comment, a push, a review, a check.
+                  <button
+                    type="button"
+                    class="dash__link"
+                    @click="editingReasons = true"
+                  >
+                    Edit reasons
+                  </button>
                 </p>
                 <div class="dash__mark-reasons">
                   <button
@@ -1359,6 +1511,54 @@ export default {
       border-radius: 6px;
       font-size:     13px;
     }
+
+    &__quiet-bar {
+      margin:    8px 0 0;
+      color:     var(--conv-muted);
+      font-size: 12px;
+
+      .dash__link { margin-left: 6px; }
+    }
+
+    &__reasons {
+      display:        flex;
+      flex-direction: column;
+      gap:            6px;
+      margin:         10px 0 4px;
+      padding:        12px 14px;
+      border:         1px solid var(--conv-line);
+      border-radius:  8px;
+      background:     var(--conv-page);
+    }
+
+    &__reasons-head {
+      display:         flex;
+      align-items:     center;
+      justify-content: space-between;
+    }
+
+    &__reasons-list {
+      margin:     0;
+      padding:    0;
+      list-style: none;
+    }
+
+    &__reasons-row {
+      display:     flex;
+      flex-wrap:   wrap;
+      align-items: center;
+      gap:         6px 12px;
+      padding:     6px 0;
+      border-top:  1px solid var(--conv-line);
+      font-size:   13px;
+    }
+
+    &__reasons-text {
+      flex:      1 1 240px;
+      min-width: 0;
+    }
+
+    &__link--danger { color: var(--conv-blocked); }
 
     &__quiet-why {
       display:    block;

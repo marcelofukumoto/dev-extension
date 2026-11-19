@@ -770,3 +770,34 @@ test('maintained repositories: every open pull request, the bots\' included, as 
   assert.deepEqual(rows.map((r) => `${ r.kind }:${ r.subject.number }`), ['review:87', 'maintain:85']);
   assert.equal(rows[1].why, 'From app/dependabot · a repository you maintain');
 });
+
+test('nothing to do: a reason renamed carries its rows and what was learned; deleted, it is offered no more', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const doc = N.emptyMarks();
+  const review = (key, author) => ({
+    kind: 'review', key, stamp: 's', author, why: `From ${ author }`
+  });
+
+  N.mark(doc, review('a', 'dependabot'), 'Usually we dont merge the DOC PRs', '2026-11-18T10:00:00Z');
+  N.mark(doc, review('b', 'dependabot'), 'Not mine to do', '2026-11-18T11:00:00Z');
+
+  N.renameReason(doc, 'Usually we dont merge the DOC PRs', 'Docs PRs: not ours to merge');
+  assert.equal(doc.marks.a.reason, 'Docs PRs: not ours to merge');
+  assert.ok(!doc.reasons['Usually we dont merge the DOC PRs']);
+  assert.equal(N.suggestion(review('c', 'dependabot'), doc).reason !== 'Usually we dont merge the DOC PRs', true);
+
+  // Renamed onto one that exists: one reason, used as often as both.
+  N.renameReason(doc, 'Docs PRs: not ours to merge', 'Not mine to do');
+  assert.equal(doc.reasons['Not mine to do'].used, 2);
+  assert.deepEqual(N.reasonsForEditing(doc)[0], { reason: 'Not mine to do', used: 2, marked: 2 });
+
+  // Deleted: not offered, not suggested; the rows marked with it stay marked.
+  N.removeReason(doc, 'Not mine to do');
+  assert.ok(!N.reasonList(doc).includes('Not mine to do'));
+  assert.equal(N.suggestion(review('d', 'dependabot'), doc), null);
+  assert.equal(doc.marks.a.reason, 'Not mine to do');
+
+  // A starter deleted stays deleted.
+  N.removeReason(doc, 'Already handled');
+  assert.ok(!N.reasonList(doc).includes('Already handled'));
+});
