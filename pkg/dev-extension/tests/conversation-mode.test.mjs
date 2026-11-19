@@ -864,3 +864,27 @@ test('the chats go newest first, on the dashboard and in every section of the ra
 
   assert.deepEqual(mine.find((s) => s.id === 'developer').items.map((i) => i.ref), ['dashboard#10', 'dashboard#30']);
 });
+
+// ── A link never keeps the punctuation the sentence put after it ───────────────────────────────
+
+test('the reader leaves a sentence\'s punctuation off the URLs it collects', async() => {
+  const out = await readFake([
+    said('assistant', [{ type: 'text', text: 'The review is at https://pr353-review.13.48.147.135.sslip.io/, and CI at https://github.com/rancher/rancher-ai-ui/actions/runs/1; done.' }]),
+  ]);
+
+  assert.deepEqual(out.urls, ['https://pr353-review.13.48.147.135.sslip.io/', 'https://github.com/rancher/rancher-ai-ui/actions/runs/1']);
+});
+
+test('chips are made from clean URLs, whatever was collected or pinned before', async() => {
+  const { chatLinks, cleanUrl } = await import('../conversation-mode/linkify.mjs');
+
+  assert.equal(cleanUrl('https://x.io/a,'), 'https://x.io/a');
+  assert.equal(cleanUrl('https://x.io/a?b=1.'), 'https://x.io/a?b=1');
+  const chips = chatLinks({
+    saved: [{ url: 'https://pr353-review.13.48.147.135.sslip.io/;' }],
+    urls:  ['https://pr353-review.13.48.147.135.sslip.io/,', 'https://pr353-review.13.48.147.135.sslip.io/', ','],
+  });
+
+  assert.equal(chips.length, 1);
+  assert.equal(chips[0].url, 'https://pr353-review.13.48.147.135.sslip.io/');
+});

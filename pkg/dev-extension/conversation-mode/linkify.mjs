@@ -4,13 +4,21 @@
 const URL_RE = /https?:\/\/[^\s<>()"'`[\]{}|\\^]+/g;
 const TRAILING = /[.,;:!?*_~>]+$/;
 
+/**
+ * A URL without the punctuation a sentence put after it ("see https://x/, then" is https://x/).
+ * Every URL a chip is made from goes through it, wherever it was found or pinned.
+ */
+export function cleanUrl(url = '') {
+  return String(url || '').trim().replace(TRAILING, '');
+}
+
 /** Every URL in a text, in order, once each, without the punctuation a sentence puts after it. */
 export function extractUrls(text = '') {
   const seen = new Set();
   const out = [];
 
   for (const raw of String(text).match(URL_RE) || []) {
-    const url = raw.replace(TRAILING, '');
+    const url = cleanUrl(raw);
 
     if (url && !seen.has(url)) {
       seen.add(url);
@@ -136,12 +144,18 @@ export function chatLinks({ subject = null, saved = [], urls = [] } = {}) {
   };
 
   if (subject?.url) {
-    const c = classifyUrl(subject.url);
+    const c = classifyUrl(cleanUrl(subject.url));
 
     add({ ...c, kind: 'subject', sub: c.kind }, -1);
   }
-  saved.forEach((l, i) => l?.url && add({ ...classifyUrl(l.url), label: l.label || classifyUrl(l.url).label }, i));
-  [...urls].reverse().forEach((u, i) => add(classifyUrl(u), 1000 + i));
+  saved.forEach((l, i) => {
+    const url = cleanUrl(l?.url);
+
+    if (url) {
+      add({ ...classifyUrl(url), label: l.label || classifyUrl(url).label }, i);
+    }
+  });
+  [...urls].map(cleanUrl).filter(Boolean).reverse().forEach((u, i) => add(classifyUrl(u), 1000 + i));
 
   return [...byKey.values()]
     .sort((a, b) => (KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)) || (a.rank - b.rank))

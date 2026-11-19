@@ -16,6 +16,8 @@ export const TRANSCRIPT_READ = `
 const fs = require('fs');
 const [home, projKey, ...ids] = process.argv.slice(1);
 const URL_RE = /https?:\\/\\/[^\\s<>()"'\`[\\]{}|\\\\^]+/g;
+// The punctuation a sentence puts after a URL - "see https://x/, then" - is not the URL's (linkify.mjs, cleanUrl).
+const TRAILING = /[.,;:!?*_~>]+$/;
 const REF_RE = /(?:^|[\\s(\\[])([A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+)#(\\d+)\\b/g;
 const out = {};
 const textOf = (content) => typeof content === 'string' ? content
@@ -78,7 +80,7 @@ for (const id of ids) {
     const text = textOf(content);
     if (!text || /^\\s*</.test(text)) continue;
     if (e.type === 'user' && !first) first = text.slice(0, 600);
-    for (const u of text.match(URL_RE) || []) urls.push(u);
+    for (const u of text.match(URL_RE) || []) { const url = u.replace(TRAILING, ''); if (url) urls.push(url); }
     for (const m of text.matchAll(REF_RE)) urls.push('https://github.com/' + m[1] + '/issues/' + m[2]);
   }
   out[id] = { first, urls: urls.slice(-200), now, step, last: last || madeAt(id) };
