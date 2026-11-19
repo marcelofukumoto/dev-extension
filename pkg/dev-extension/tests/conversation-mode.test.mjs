@@ -733,3 +733,14 @@ test('nothing to do: a marked item goes to the rail\'s Nothing to do section unt
   pr.updatedAt = '2026-11-18T19:00:00Z';
   assert.equal(where(), 'reviewer');
 });
+
+test('nothing to do: on your own pull requests the author is no likeness - only the same reason is', async() => {
+  const N = await import('../conversation-mode/nothing-to-do.mjs');
+  const mine = (number, why) => ({
+    kind: 'blocked', key: `rancher/dashboard#${ number }`, stamp: 's', author: 'marcelofukumoto', subject: { repo: 'rancher/dashboard', number }, why,
+  });
+  const doc = N.mark(N.emptyMarks(), mine(18229, 'Failing: Description, validate, unit-test (+8 more)'), 'Waiting on someone else');
+
+  assert.equal(N.suggestion(mine(19887, 'Failing: Description · Unticked: "UX"'), doc), null);
+  assert.equal(N.suggestion(mine(19999, 'Failing: Description, validate, unit-test (+3 more)'), doc).reason, 'Waiting on someone else');
+});

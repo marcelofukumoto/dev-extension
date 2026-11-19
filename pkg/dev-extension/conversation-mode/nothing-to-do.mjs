@@ -31,6 +31,9 @@ export const STARTER_REASONS = [
 
 export const DRAFT_REASON = STARTER_REASONS[0];
 
+/** The rows about somebody else's pull request, where who wrote it says something. */
+const REVIEW_KINDS = new Set(['review', 'rereview', 'waiting']);
+
 export function emptyMarks() {
   return { marks: {}, reasons: {}, history: [] };
 }
@@ -93,7 +96,9 @@ export function suggestion(row, doc) {
     if (h.kind !== f.kind || !!h.draft !== f.draft) {
       continue;
     }
-    const alike = (f.author && h.author === f.author) || (f.why && h.why === f.why);
+    // The same author says something only about somebody else's pull request: on your own
+    // (blocked, ready) the author is always you, and every row of yours would look alike.
+    const alike = (REVIEW_KINDS.has(f.kind) && f.author && h.author === f.author) || (f.why && h.why === f.why);
 
     if (alike) {
       votes[h.reason] = (votes[h.reason] || 0) + 1;
