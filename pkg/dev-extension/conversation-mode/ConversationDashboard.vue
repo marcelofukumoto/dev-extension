@@ -11,7 +11,7 @@ import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
-import { railSections, isArchived } from './rail.mjs';
+import { railSections, isArchived, byLastUpdated } from './rail.mjs';
 import { doingText } from './transcript-read.mjs';
 import {
   emptyMarks, withQuestionStamps, isQuiet, quietKeys, suggestion, reasonList, mark, unmark, prune,
@@ -21,6 +21,9 @@ import { updateMarks } from './marks';
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
+
+/** The chats the Chats card lists, newest first; the rest are in Chats. */
+const CHATS_SHOWN = 10;
 
 const KIND_LABEL = {
   question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', maintain: 'Maintainer', ready: 'Ready', waiting: 'Waiting review request'
@@ -53,6 +56,8 @@ export default {
     links:    { type: Object, default: () => ({}) },
     /** What each chat's transcript says (transcripts.ts): here, what an ongoing chat is doing. */
     transcripts: { type: Object, default: () => ({}) },
+    /** chat id -> when it last moved, in ms (rail.mjs, lastUpdated): the chats go newest first. */
+    lastAt:   { type: Object, default: () => ({}) },
     /** The "Nothing to do" marks (nothing-to-do.mjs), owned by the page; a change is emitted as `marks`. */
     marks:    { type: Object, default: () => emptyMarks() },
     name:     { type: String, default: '' },
@@ -211,9 +216,18 @@ export default {
      * Your agent team at work: every issue and pull request a chat is on, and the chats about
      * nothing, as the rail groups them (rail.mjs) - what is over (merged, closed, cleared) left out.
      */
-    /** The chats the Chats card lists: the archived ones are under Done in the rail. */
+    /** The chats not archived (those are under Done in the rail), the one that moved last first. */
     liveChats() {
-      return this.chats.filter((c) => !isArchived(this.links[c.id]));
+      return byLastUpdated(this.chats.filter((c) => !isArchived(this.links[c.id])), this.lastAt);
+    },
+
+    /** What the Chats card lists: the newest CHATS_SHOWN; the rest are a click away, in Chats. */
+    shownChats() {
+      return this.liveChats.slice(0, CHATS_SHOWN);
+    },
+
+    moreChats() {
+      return this.liveChats.length - this.shownChats.length;
     },
 
     archivedCount() {
@@ -222,7 +236,7 @@ export default {
 
     team() {
       // At work: not what is over, nor what was marked "Nothing to do".
-      return railSections(this.chats, this.links, this.work, this.activity, quietKeys(this.allAttention, this.marks))
+      return railSections(this.chats, this.links, this.work, this.activity, quietKeys(this.allAttention, this.marks), this.lastAt)
         .filter((s) => s.id !== 'done' && s.id !== 'quiet')
         .flatMap((s) => s.items);
     },
@@ -873,7 +887,7 @@ export default {
           </p>
           <ul class="dash__chatlist">
             <li
-              v-for="chat in liveChats"
+              v-for="chat in shownChats"
               :key="chat.id"
               class="dash__chat-row"
             >
@@ -889,7 +903,7 @@ export default {
                 />
                 <span class="dash__chat-title">{{ chat.title }}</span>
                 <span class="dash__chat-meta">
-                  <template v-if="subjectFor(chat.id) && !chat.title.startsWith(subjectFor(chat.id))">{{ subjectFor(chat.id) }} · </template>{{ stateLabel(chat.id) }}
+                  <template v-if="subjectFor(chat.id) && !chat.title.startsWith(subjectFor(chat.id))">{{ subjectFor(chat.id) }} · </template>{{ stateLabel(chat.id) }}<template v-if="lastAt[chat.id]"> · {{ when(new Date(lastAt[chat.id]).toISOString()) }}</template>
                 </span>
                 <span
                   v-if="doing(chat.id)"
@@ -909,6 +923,15 @@ export default {
               </button>
             </li>
           </ul>
+          <button
+            v-if="moreChats"
+            type="button"
+            class="dash__link dash__more"
+            data-testid="dashboard-chats-more"
+            @click="$emit('view-chats')"
+          >
+            {{ moreChats }} more - in Chats
+          </button>
           <button
             v-if="archivedCount"
             type="button"

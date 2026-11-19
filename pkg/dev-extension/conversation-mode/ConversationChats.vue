@@ -18,6 +18,7 @@ import ClaudeUsage from './ClaudeUsage.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import { chatCommand } from './config.mjs';
 import { railSections, filterRail } from './rail.mjs';
+import { ago } from './projects.mjs';
 
 /** Chips in the links bar before "+N more". */
 const LINKS_SHOWN = 8;
@@ -55,6 +56,8 @@ export default {
     current:   { type: String, default: '' },
     /** The keys marked "Nothing to do" that still hold (nothing-to-do.mjs): their items go aside. */
     quietKeys: { type: Set, default: () => new Set() },
+    /** chat id -> when it last moved, in ms (rail.mjs, lastUpdated): each section, newest first. */
+    lastAt:    { type: Object, default: () => ({}) },
     loading:   { type: Boolean, default: false },
     creating:  { type: Boolean, default: false },
   },
@@ -78,7 +81,7 @@ export default {
     LINKS_SHOWN: () => LINKS_SHOWN,
 
     sections() {
-      return railSections(this.chats, this.links, this.work, this.activity, this.quietKeys);
+      return railSections(this.chats, this.links, this.work, this.activity, this.quietKeys, this.lastAt);
     },
 
     shownSections() {
@@ -152,6 +155,11 @@ export default {
   },
 
   methods: {
+    /** The item's hover: its title, and when its chat last moved (the rail's order). */
+    itemTitle(item) {
+      return item.last ? `${ item.title } - last message ${ ago(new Date(item.last).toISOString()) }` : item.title;
+    },
+
     command(chat) {
       return chatCommand(chat.id, chat.cli);
     },
@@ -287,7 +295,7 @@ export default {
             type="button"
             class="chats__item"
             :class="{ 'chats__item--on': currentItem && item.key === currentItem.key }"
-            :title="item.title"
+            :title="itemTitle(item)"
             :data-testid="`rail-item-${ item.key }`"
             @click="openItem(item)"
           >

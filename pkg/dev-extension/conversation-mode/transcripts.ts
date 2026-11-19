@@ -17,6 +17,8 @@ export interface ChatTranscript {
   now: { text: string, at: string } | null;
   /** The step its to-do list marks in progress; '' when there is none. */
   step: string;
+  /** When the chat last moved (ISO): its newest message, or when it was made; '' when unknown. */
+  last: string;
 }
 
 

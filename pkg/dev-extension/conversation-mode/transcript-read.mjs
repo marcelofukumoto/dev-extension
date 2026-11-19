@@ -8,6 +8,8 @@
 //   now    what the agent did last, in a few words, and when: the tool it called (the command's
 //          own description, the file it edits, the question it asks) or the first line it wrote
 //   step   the step its to-do list marks in progress, '' when there is none
+//   last   when the chat last moved (ISO): its newest message, either side's - or, for a chat
+//          that has not run yet, when it was made (its sessions/<id> directory); '' when unknown
 // The transcript is the one claude keeps for the repo's working directory, found by the id the
 // pane recorded (/workspace/sessions/<id>.id). Ids are checked before they reach a path.
 export const TRANSCRIPT_READ = `
@@ -38,22 +40,26 @@ function toolText(b) {
     default: return String(b.name || 'a tool').replace(/^mcp__[^_]+(?:_[^_]+)*__/, '');
   }
 }
+const sessions = home.replace(/\\/[^/]+$/, '') + '/sessions/';
+const madeAt = (id) => { try { const st = fs.statSync(sessions + id); return new Date(st.birthtimeMs || st.mtimeMs).toISOString(); } catch (e) { return ''; } };
 for (const id of ids) {
   if (!/^[A-Za-z0-9_.-]+$/.test(id)) continue;
   let uuid = '';
-  try { uuid = fs.readFileSync(home.replace(/\\/[^/]+$/, '') + '/sessions/' + id + '.id', 'utf8').trim(); } catch (e) {}
-  if (!/^[0-9a-f-]{36}$/.test(uuid)) { out[id] = { first: '', urls: [], now: null, step: '' }; continue; }
+  try { uuid = fs.readFileSync(sessions + id + '.id', 'utf8').trim(); } catch (e) {}
+  if (!/^[0-9a-f-]{36}$/.test(uuid)) { out[id] = { first: '', urls: [], now: null, step: '', last: madeAt(id) }; continue; }
   let lines = [];
   try { lines = fs.readFileSync(home + '/.claude/projects/' + projKey + '/' + uuid + '.jsonl', 'utf8').split('\\n'); } catch (e) {}
   let first = '';
   let now = null;
   let step = '';
+  let last = '';
   const urls = [];
   for (const line of lines) {
     if (!line) continue;
     let e; try { e = JSON.parse(line); } catch (x) { continue; }
     if (e.type !== 'user' && e.type !== 'assistant') continue;
     if (e.isMeta || e.isSidechain) continue;
+    if (e.timestamp && e.timestamp > last) last = e.timestamp;
     const content = e.message && e.message.content;
     if (e.type === 'assistant' && Array.isArray(content)) {
       for (const b of content) {
@@ -75,7 +81,7 @@ for (const id of ids) {
     for (const u of text.match(URL_RE) || []) urls.push(u);
     for (const m of text.matchAll(REF_RE)) urls.push('https://github.com/' + m[1] + '/issues/' + m[2]);
   }
-  out[id] = { first, urls: urls.slice(-200), now, step };
+  out[id] = { first, urls: urls.slice(-200), now, step, last: last || madeAt(id) };
 }
 process.stdout.write(JSON.stringify(out));
 `;

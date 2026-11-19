@@ -126,16 +126,32 @@ function reviewerStatus(it) {
 }
 
 /**
+ * When each chat last moved, chat id -> ms: the newest message in its transcript, either side's
+ * (transcript-read.mjs, `last`), or when this page made it if that is later; 0 when neither is
+ * known yet.
+ */
+export function lastUpdated(chats = [], transcripts = {}, made = {}) {
+  return Object.fromEntries(chats.map((c) => [c.id, Math.max(Date.parse(transcripts[c.id]?.last || '') || 0, made[c.id] || 0)]));
+}
+
+/** The chats, the one that moved last first; the ones not known yet after, in the order they came. */
+export function byLastUpdated(chats = [], lastAt = {}) {
+  return [...chats].sort((a, b) => (lastAt[b.id] || 0) - (lastAt[a.id] || 0));
+}
+
+/**
  * The rail: `[{ id, label, items }]` in section order, each item
- * `{ key, section, subject, title, ref, url, chatIds, activity, status }`.
+ * `{ key, section, subject, title, ref, url, chatIds, activity, status, last }`, the item whose
+ * chat moved last first in each section.
  *
  * @param {Array}  chats     [{ id, title }]
  * @param {object} links     chat id -> { subject }
  * @param {object} work      myWork()'s answer, merged
  * @param {object} activity  chat id -> agent state
  * @param {Set}    quiet     the keys marked "Nothing to do" that still hold (nothing-to-do.mjs, quietKeys)
+ * @param {object} lastAt    chat id -> when it last moved, in ms (lastUpdated)
  */
-export function railSections(chats = [], links = {}, work = {}, activity = {}, quiet = new Set()) {
+export function railSections(chats = [], links = {}, work = {}, activity = {}, quiet = new Set(), lastAt = {}) {
   const index = indexWork(work);
   // Before GitHub has answered once, nothing is "over": every subject would look closed.
   const loaded = !!work.login;
@@ -178,13 +194,14 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}, q
       activity: Object.keys(URGENCY).find((k) => URGENCY[k] === urgency) || 'none',
       status:   archived ? { text: 'Archived', tone: '', stage: statusOf(item.section, item.subject, found).stage } : statusOf(item.section, item.subject, found, item.chatIds.length > 0),
       updated:  Date.parse(found?.item?.updatedAt || '') || 0,
+      last:     Math.max(0, ...item.chatIds.map((id) => lastAt[id] || 0)),
     };
   });
 
   return SECTIONS.map((s) => ({
     ...s,
     items: all.filter((i) => i.section === s.id)
-      .sort((a, b) => (URGENCY[b.activity] - URGENCY[a.activity]) || (b.updated - a.updated) || a.title.localeCompare(b.title)),
+      .sort((a, b) => (b.last - a.last) || (b.updated - a.updated) || a.title.localeCompare(b.title)),
   }));
 }
 

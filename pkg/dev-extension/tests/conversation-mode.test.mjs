@@ -801,3 +801,66 @@ test('nothing to do: a reason renamed carries its rows and what was learned; del
   N.removeReason(doc, 'Already handled');
   assert.ok(!N.reasonList(doc).includes('Already handled'));
 });
+
+// ── The chats, the one that moved last first ───────────────────────────────────────────────────
+
+test('the reader says when the chat last moved: its newest message, or when a chat that never ran was made', async() => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const { TRANSCRIPT_READ } = await import('../conversation-mode/transcript-read.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'conv-last-'));
+  const home = join(root, '.home');
+  const uuid = '01234567-89ab-cdef-0123-456789abcdef';
+
+  mkdirSync(join(root, 'sessions/p-new'), { recursive: true });
+  mkdirSync(join(home, '.claude/projects/key'), { recursive: true });
+  writeFileSync(join(root, 'sessions/p-1.id'), uuid);
+  writeFileSync(join(home, `.claude/projects/key/${ uuid }.jsonl`), [
+    said('user', 'go', '2026-11-18T10:00:00Z'),
+    said('assistant', [{ type: 'text', text: 'On it.' }], '2026-11-18T10:02:00Z'),
+    { ...said('user', 'side', '2026-11-18T11:00:00Z'), isSidechain: true },
+    said('user', [{ type: 'tool_result', content: 'ok' }], '2026-11-18T10:03:00Z'),
+  ].map((l) => JSON.stringify(l)).join('\n'));
+  const out = JSON.parse(execFileSync('node', ['-e', TRANSCRIPT_READ, home, 'key', 'p-1', 'p-new', 'p-none']).toString());
+
+  assert.equal(out['p-1'].last, '2026-11-18T10:03:00Z');
+  assert.ok(Date.parse(out['p-new'].last) > Date.now() - 60000, 'a chat that never ran: when its directory was made');
+  assert.equal(out['p-none'].last, '');
+});
+
+test('the chats go newest first, on the dashboard and in every section of the rail, whatever their state', async() => {
+  const { lastUpdated, byLastUpdated } = await import('../conversation-mode/rail.mjs');
+  const chats = [
+    { id: 'p-lte-duty-1', title: 'dashboard#10 fix' },
+    { id: 'p-lte-duty-2', title: 'Old question' },
+    { id: 'p-lte-duty-3', title: 'Fresh question' },
+    { id: 'p-lte-duty-4', title: 'Just made' },
+    { id: 'p-lte-duty-5', title: 'Not read yet' },
+  ];
+  const transcripts = {
+    'p-lte-duty-1': { last: '2026-11-19T09:00:00Z' },
+    'p-lte-duty-2': { last: '2026-11-17T09:00:00Z' },
+    'p-lte-duty-3': { last: '2026-11-19T11:00:00Z' },
+  };
+  const lastAt = lastUpdated(chats, transcripts, { 'p-lte-duty-4': Date.parse('2026-11-19T12:00:00Z') });
+
+  assert.deepEqual(byLastUpdated(chats, lastAt).map((c) => c.title), ['Just made', 'Fresh question', 'dashboard#10 fix', 'Old question', 'Not read yet']);
+
+  // Waiting for you and working no longer jump the queue: the section is in last-moved order.
+  const rail = railSections(chats, {}, { login: 'me' }, { 'p-lte-duty-2': 'input', 'p-lte-duty-1': 'working' }, new Set(), lastAt);
+
+  assert.deepEqual(rail.find((s) => s.id === 'other').items.map((i) => i.title), ['Just made', 'Fresh question', 'dashboard#10 fix', 'Old question', 'Not read yet']);
+
+  // An item with several chats moves with the newest of them.
+  const links = {
+    'p-lte-duty-1': { subject: { repo: 'rancher/dashboard', number: 10, kind: 'pr', url: 'u10' } },
+    'p-lte-duty-2': { subject: { repo: 'rancher/dashboard', number: 10, kind: 'pr', url: 'u10' } },
+    'p-lte-duty-3': { subject: { repo: 'rancher/dashboard', number: 30, kind: 'pr', url: 'u30' } },
+  };
+  const work = { login: 'me', mine: [pr({ number: 10, repo: 'rancher/dashboard' }), pr({ number: 30, repo: 'rancher/dashboard' })] };
+  const mine = railSections(chats.slice(0, 3), links, work, {}, new Set(), { ...lastAt, 'p-lte-duty-2': Date.parse('2026-11-19T11:30:00Z') });
+
+  assert.deepEqual(mine.find((s) => s.id === 'developer').items.map((i) => i.ref), ['dashboard#10', 'dashboard#30']);
+});

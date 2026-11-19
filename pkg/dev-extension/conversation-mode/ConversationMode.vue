@@ -34,6 +34,7 @@ import { readLinks, updateLinks } from './links';
 import { readTranscripts } from './transcripts';
 import { readMarks } from './marks';
 import { emptyMarks, withQuestionStamps, quietKeys } from './nothing-to-do.mjs';
+import { lastUpdated } from './rail.mjs';
 import { myWork, pullRequest, issuesByNumber } from '../github';
 import { fetchWork, requestRefresh, listenForWork } from './work-client';
 
@@ -88,6 +89,8 @@ export default {
   data() {
     return {
       chats:        [],
+      /** chat id -> when this page made it (ms): a new chat leads the lists before it has a transcript. */
+      made:         {},
       activity:     {},
       links:        {},
       loadingChats: true,
@@ -177,6 +180,11 @@ export default {
     },
 
     /** Each chat's links, as the links bar shows them (linkify.mjs). */
+    /** chat id -> when it last moved (rail.mjs, lastUpdated): both views list the chats newest first. */
+    lastAt() {
+      return lastUpdated(this.chats, this.transcripts, this.made);
+    },
+
     /** The keys of the rows marked "Nothing to do" that still hold; their rail items go aside. */
     quietKeys() {
       return quietKeys(withQuestionStamps(attentionRows(this.work, this.chats, this.activity, this.links), this.transcripts), this.marks);
@@ -542,6 +550,7 @@ export default {
         const made = await startConversation(CONVERSATION_WORKSPACE, title, subject && !quiet ? openingMessage(subject) : '');
 
         this.chats = [...this.chats, { id: made.id, title: made.title || title, cli: '' }];
+        this.made = { ...this.made, [made.id]: Date.now() };
         if (subject) {
           this.links = await updateLinks((links) => {
             links[made.id] = { ...(links[made.id] || {}), subject };
@@ -733,6 +742,7 @@ export default {
       :activity="activity"
       :links="links"
       :transcripts="transcripts"
+      :last-at="lastAt"
       :marks="marks"
       :name="firstName"
       :starting="starting"
@@ -768,6 +778,7 @@ export default {
       :links="links"
       :chat-links="chatLinksById"
       :quiet-keys="quietKeys"
+      :last-at="lastAt"
       :work="work"
       :current="current"
       :loading="loadingChats"
