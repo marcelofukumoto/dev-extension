@@ -227,20 +227,42 @@ export function shapeSection(section, data) {
   };
 }
 
-/** Ask GitHub. Throws `GitHub answered <status>` the way github.ts does, so a 50x can be retried. */
+/**
+ * Ask GitHub. Throws `GitHub answered <status>` the way github.ts does; an error worth asking again
+ * for carries `retriable` - a 50x, and an answer that never came whole: a connection GitHub dropped
+ * mid-answer (a 200 with nothing, or half of one, which JSON.parse would only call "Unexpected end
+ * of JSON input") or one that could not be made.
+ */
 export async function askGithub(token, query, fetchImpl = fetch) {
-  const resp = await fetchImpl('https://api.github.com/graphql', {
-    method:  'POST',
-    headers: {
-      authorization: `Bearer ${ token }`, 'content-type': 'application/json', 'user-agent': 'conversation-api'
-    },
-    body: JSON.stringify({ query }),
-  });
+  const retriable = (message) => Object.assign(new Error(message), { retriable: true });
+  let resp;
+  let text;
 
-  if (!resp.ok) {
-    throw new Error(`GitHub answered ${ resp.status }.`);
+  try {
+    resp = await fetchImpl('https://api.github.com/graphql', {
+      method:  'POST',
+      headers: {
+        authorization: `Bearer ${ token }`, 'content-type': 'application/json', 'user-agent': 'conversation-api'
+      },
+      body: JSON.stringify({ query }),
+    });
+    if (!resp.ok) {
+      throw Object.assign(new Error(`GitHub answered ${ resp.status }.`), { retriable: resp.status >= 500, answered: true });
+    }
+    text = await resp.text();
+  } catch (e) {
+    if (e.answered) {
+      throw e;
+    }
+    throw retriable(`GitHub could not be reached (${ e.cause?.code || e.message }).`);
   }
-  const body = await resp.json();
+  let body;
+
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw retriable(text.trim() ? 'GitHub\'s answer was cut short.' : 'GitHub answered with nothing - the connection dropped.');
+  }
 
   if (body.errors?.length) {
     throw new Error(body.errors.map((e) => e.message).join(' '));

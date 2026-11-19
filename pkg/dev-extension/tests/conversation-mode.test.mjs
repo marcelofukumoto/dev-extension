@@ -888,3 +888,31 @@ test('chips are made from clean URLs, whatever was collected or pinned before', 
   assert.equal(chips.length, 1);
   assert.equal(chips[0].url, 'https://pr353-review.13.48.147.135.sslip.io/');
 });
+
+// ── GitHub's answer that never came whole ──────────────────────────────────────────────────────
+
+test('askGithub: an empty or cut-off answer, a dropped connection and a 50x are worth asking again; a 401 is not', async() => {
+  const { askGithub } = await import('../conversation-mode/server/github.mjs');
+  const answer = (status, text) => async() => ({ ok: status < 300, status, text: async() => text });
+  const fails = async(fetchImpl) => askGithub('t', '{ viewer { login } }', fetchImpl).then(() => null, (e) => e);
+
+  assert.deepEqual(await askGithub('t', 'q', answer(200, '{"data":{"viewer":{"login":"me"}}}')), { viewer: { login: 'me' } });
+  for (const [fetchImpl, message] of [
+    [answer(200, ''), 'GitHub answered with nothing - the connection dropped.'],
+    [answer(200, '{"data":{"vie'), 'GitHub\'s answer was cut short.'],
+    [answer(502, ''), 'GitHub answered 502.'],
+    [async() => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+    }, 'GitHub could not be reached (ECONNRESET).'],
+  ]) {
+    const e = await fails(fetchImpl);
+
+    assert.equal(e.message, message);
+    assert.equal(e.retriable, true, message);
+  }
+  const denied = await fails(answer(401, ''));
+
+  assert.equal(denied.message, 'GitHub answered 401.');
+  assert.ok(!denied.retriable);
+  assert.equal((await fails(answer(200, '{"errors":[{"message":"Something went wrong"}]}'))).message, 'Something went wrong');
+});

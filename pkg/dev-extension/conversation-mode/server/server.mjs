@@ -153,7 +153,8 @@ async function refresh(reason) {
       try {
         return shape(await askGithub(tok, query));
       } catch (e) {
-        if (!/ 50[234]\b/.test(e.message)) {
+        // Asked again once: a 50x, or an answer that never came whole (github.mjs, askGithub).
+        if (!e.retriable) {
           throw e;
         }
         await sleep(1500);
