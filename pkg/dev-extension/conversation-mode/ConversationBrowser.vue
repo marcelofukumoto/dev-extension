@@ -77,8 +77,17 @@ export default {
     },
 
     /** The repositories and milestones there are in this tab, for their filters. */
+    /**
+     * Every repository the dashboard watches (projects.mjs, PROJECTS) - the chosen product's when
+     * one is chosen - whether or not this tab has anything in it, so the chips do not come and go
+     * from tab to tab; the empty ones are drawn muted.
+     */
     repos() {
-      return [...new Set(this.lists[this.tab].map((x) => x.repo))].sort();
+      const product = PROJECTS.find((p) => p.id === this.filters.product);
+      const watched = product ? product.repos : PROJECTS.flatMap((p) => p.repos);
+      const seen = this.lists[this.tab].map((x) => x.repo).filter((r) => !product || product.repos.includes(r));
+
+      return [...new Set([...watched, ...seen])].sort((a, b) => a.split('/').pop().localeCompare(b.split('/').pop()));
     },
 
     milestones() {
@@ -132,7 +141,13 @@ export default {
         {
           id:      'repo',
           label:   'Repository',
-          options: [any('All'), ...this.repos.map((r) => ({ v: r, t: `${ r.split('/').pop() } ${ inTab.filter((x) => x.repo === r).length }`, title: r }))],
+          options: [any('All'), ...this.repos.map((r) => {
+            const n = inTab.filter((x) => x.repo === r).length;
+
+            return {
+              v: r, t: `${ r.split('/').pop() } ${ n }`, title: n ? r : `${ r }: nothing in this tab`, empty: !n
+            };
+          })],
         },
       ];
 
@@ -154,9 +169,17 @@ export default {
 
   watch: {
     tab() {
-      // A repository or milestone picked in one tab may not exist in the next.
-      this.filters.repo = '';
+      // A milestone picked in one tab may not exist in the next. The repository stays: every tab
+      // offers every repository.
       this.filters.milestone = '';
+    },
+
+    'filters.product'(product) {
+      const p = PROJECTS.find((x) => x.id === product);
+
+      if (p && this.filters.repo && !p.repos.includes(this.filters.repo)) {
+        this.filters.repo = '';
+      }
     },
   },
 
@@ -277,7 +300,7 @@ export default {
           :key="o.v"
           type="button"
           class="br__chip"
-          :class="{ 'br__chip--on': filters[g.id] === o.v }"
+          :class="{ 'br__chip--on': filters[g.id] === o.v, 'br__chip--empty': o.empty && filters[g.id] !== o.v }"
           :aria-pressed="filters[g.id] === o.v ? 'true' : 'false'"
           :title="o.title || ''"
           :data-testid="`browser-${ g.id }-${ o.v || 'any' }`"
@@ -548,6 +571,9 @@ export default {
       font-size:     12px;
 
       &:hover { border-color: var(--conv-ink); }
+
+      // A repository with nothing in this tab: still there to pick, quieter.
+      &--empty { color: var(--conv-muted); border-style: dashed; }
 
       &--on {
         border-color: var(--conv-ink);
