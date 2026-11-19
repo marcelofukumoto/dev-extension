@@ -25,6 +25,10 @@ Edits to upstream files, each marked with a comment naming this file:
 - `pkg/dev-extension/conversations.ts`: `paneCommand` and `startPaneDetached` return Conversation
   mode's argv for the `lte-duty` workspace, so a chat keeps its repo and tunnel whichever page or
   sweep starts it (the workspace page, the queued-prompt sweep, `sendToPane` waking it).
+- `pkg/dev-extension/lte.ts`: the workspace App's memory limit is a value, `memory` (default
+  `12Gi`, so every workspace renders as before), and the `lte-duty` AppInstance sets `20Gi`
+  (`kubectl patch appinstances.appsplus.io lte-duty --type=merge -p
+  '{"spec":{"values":{"memory":"20Gi"}}}'`): all the chats' commands share that one container.
 - `pkg/dev-extension/chat-conversation.ts`: `start()` (waking a resting conversation from the chat
   view) keeps shell.sh's `$5` tunnel and `$6` CLI. **Upstream bug, worth offering to Cody:** cut at
   `$4`, a woken workspace conversation started with no `CLAUDE_CODE_SHELL_PREFIX`, ran its commands
@@ -33,7 +37,8 @@ Edits to upstream files, each marked with a comment naming this file:
 ## What Conversation mode relies on, outside this repo
 
 - The `lte-duty` workspace on mf-dev: its pod runs the commands, and the conversations are
-  registered under its name. Never delete it: dev-api's housekeeping ends every conversation whose
+  registered under its name. Its AppInstance carries `memory: 20Gi` (see lte.ts above); a
+  re-created one needs that set again. Never delete it: dev-api's housekeeping ends every conversation whose
   workspace is gone.
 - `/workspaces/.conversation/` on the node: the interrupt-duty checkout, `bin/conv-shell` (the
   command tunnel) and the tools. Housekeeping skips dot-directories, which is why it is one.

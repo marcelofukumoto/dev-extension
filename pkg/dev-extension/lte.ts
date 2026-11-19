@@ -143,12 +143,15 @@ export function lteWorkspaceApp(): Json {
         image:       'node:24',
         hostCluster: 'local',
         rancherUrl:  'https://$(NODE_IP)',
+        // FORK.md: a value, so one workspace can have more without every other one changing.
+        memory:      '12Gi',
       },
       valueLabels: {
         repo:        'GitHub repository to clone',
         image:       'Container image',
         hostCluster: 'Cluster the workspace runs on',
         rancherUrl:  'Rancher its tools point at by default',
+        memory:      'Memory limit of the workspace container',
       },
       templates: [
         {
@@ -236,7 +239,10 @@ export function lteWorkspaceApp(): Json {
             '              memory: 512Mi',
             '            limits:',
             '              cpu: "4"',
-            '              memory: 12Gi',
+            // FORK.md: `memory` (12Gi unless the workspace says otherwise). Conversation mode's
+            // lte-duty sets 20Gi: every chat runs its commands in that one container, so two
+            // chats' production builds at once were enough to OOM-kill it.
+            '              memory: ${memory}',
             '          command:',
             '            - /bin/sh',
             '            - -c',
