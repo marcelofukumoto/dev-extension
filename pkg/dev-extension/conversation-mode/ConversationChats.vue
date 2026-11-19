@@ -644,7 +644,7 @@ export default {
         &:hover { background: var(--conv-mint); }
       }
 
-      // Its chat is working: the dashboard's working green, the edge pulsing with the dot. Waiting
+      // Its chat is working: the dashboard's working blue, the edge pulsing with the dot. Waiting
       // for you: orange. Over the selection's mint and the hover, which keep only their outline.
       &--working,
       &--working:hover {
@@ -816,7 +816,7 @@ export default {
       opacity:       0.5;
 
       &--working {
-        background: var(--conv-accent);
+        background: var(--conv-working);
         opacity:    1;
         animation:  chats-pulse 1.4s ease-in-out infinite;
       }
@@ -983,7 +983,7 @@ export default {
 
   @keyframes chats-item-working {
     0%, 100% { box-shadow: inset 4px 0 0 var(--conv-working); }
-    50% { box-shadow: inset 4px 0 0 var(--conv-mint-line); }
+    50% { box-shadow: inset 4px 0 0 var(--conv-working-line); }
   }
 </style>
 

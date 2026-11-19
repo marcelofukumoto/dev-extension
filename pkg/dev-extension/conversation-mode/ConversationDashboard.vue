@@ -1380,7 +1380,7 @@ export default {
         box-shadow: inset 3px 0 0 var(--conv-accent);
       }
 
-      // Its chat is working: a deeper green, the edge pulsing like the agent's dot.
+      // Its chat is working: blue, the edge pulsing like the agent's dot.
       &--working {
         background: var(--conv-working-bg);
         animation:  dash-row-working 1.4s ease-in-out infinite;
@@ -1462,7 +1462,7 @@ export default {
         vertical-align: middle;
       }
 
-      &--working::before { animation: dash-doing 1.4s ease-in-out infinite; }
+      &--working::before { background: var(--conv-working); animation: dash-doing 1.4s ease-in-out infinite; }
       &--input::before { background: var(--conv-orange); }
     }
 
@@ -1696,7 +1696,7 @@ export default {
       background:    var(--conv-muted);
       opacity:       0.5;
 
-      &--working { background: var(--conv-accent); opacity: 1; }
+      &--working { background: var(--conv-working); opacity: 1; }
       &--input { background: var(--conv-orange); opacity: 1; }
       &--idle,
       &--finished { background: var(--conv-accent); opacity: 0.6; }
@@ -2001,6 +2001,6 @@ export default {
 
 @keyframes dash-row-working {
   0%, 100% { box-shadow: inset 4px 0 0 var(--conv-working); }
-  50% { box-shadow: inset 4px 0 0 var(--conv-mint-line); }
+  50% { box-shadow: inset 4px 0 0 var(--conv-working-line); }
 }
 </style>

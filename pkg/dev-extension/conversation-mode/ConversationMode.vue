@@ -819,9 +819,11 @@ export default {
     --conv-accent:       #4cae6b;
     --conv-mint:         #e8f5ee;
     --conv-mint-line:    #d4e8db;
-    // A row whose chat is working (a deeper green, its edge pulsing) or waiting for you (orange).
-    --conv-working-bg:   #d5eedd;
-    --conv-working:      #2e8b4e;
+    // A chat that is working is blue wherever it shows - its row, its rail item (the edge pulsing)
+    // and its dot - so it stands apart from the mint every chat row has; waiting for you is orange.
+    --conv-working-bg:   #d4e6ff;
+    --conv-working:      #1d6ce0;
+    --conv-working-line: #a6c8f5;
     --conv-waiting-bg:   #fdf0e6;
     --conv-orange:       #ee7a3b;
     --conv-orange-text:  #9f461d;

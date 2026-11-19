@@ -665,7 +665,7 @@ export default {
       &:first-child { box-shadow: inset 3px 0 0 var(--conv-accent); }
     }
 
-    // Its chat is working: a deeper green, the edge pulsing. Waiting for you: orange.
+    // Its chat is working: blue, the edge pulsing. Waiting for you: orange.
     &__row--working td {
       background: var(--conv-working-bg);
 
@@ -761,6 +761,6 @@ export default {
 
 @keyframes br-row-working {
   0%, 100% { box-shadow: inset 4px 0 0 var(--conv-working); }
-  50% { box-shadow: inset 4px 0 0 var(--conv-mint-line); }
+  50% { box-shadow: inset 4px 0 0 var(--conv-working-line); }
 }
 </style>
