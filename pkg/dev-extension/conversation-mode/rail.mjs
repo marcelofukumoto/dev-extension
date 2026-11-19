@@ -28,6 +28,29 @@ const URGENCY = {
   input: 4, working: 3, idle: 2, finished: 1, none: 0
 };
 
+/**
+ * The state of the chats about each issue or pull request, `repo#n` -> the most urgent of them
+ * (waiting for you, then working, then idle, done, not running): what a row of it is coloured by.
+ */
+export function activityBySubject(chats = [], links = {}, activity = {}) {
+  const out = {};
+
+  for (const chat of chats) {
+    const s = links[chat.id]?.subject;
+
+    if (s) {
+      const key = subjectKey(s.repo, s.number);
+      const state = activity[chat.id] || 'none';
+
+      if (!out[key] || URGENCY[state] > URGENCY[out[key]]) {
+        out[key] = state;
+      }
+    }
+  }
+
+  return out;
+}
+
 /** Index of a GitHub answer by `repo#n`, with where each one came from. */
 export function indexWork(work = {}) {
   const out = {};

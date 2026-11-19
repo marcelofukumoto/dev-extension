@@ -11,7 +11,9 @@ import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
-import { railSections, isArchived, byLastUpdated } from './rail.mjs';
+import {
+  railSections, isArchived, byLastUpdated, activityBySubject
+} from './rail.mjs';
 import { doingText } from './transcript-read.mjs';
 import {
   emptyMarks, withQuestionStamps, isQuiet, quietKeys, suggestion, reasonList, mark, unmark, prune,
@@ -216,6 +218,11 @@ export default {
      * Your agent team at work: every issue and pull request a chat is on, and the chats about
      * nothing, as the rail groups them (rail.mjs) - what is over (merged, closed, cleared) left out.
      */
+    /** `repo#n` -> the most urgent state of its chats: what a row of it is coloured by. */
+    subjectActivity() {
+      return activityBySubject(this.chats, this.links, this.activity);
+    },
+
     /** The chats not archived (those are under Done in the rail), the one that moved last first. */
     liveChats() {
       return byLastUpdated(this.chats.filter((c) => !isArchived(this.links[c.id])), this.lastAt);
@@ -471,6 +478,14 @@ export default {
     stateOf(id) {
       return this.activity[id] || 'none';
     },
+    /** The state a row of Needs your attention is coloured by: its chats', or a question's own chat's. */
+    rowState(row) {
+      if (!row.chatId) {
+        return '';
+      }
+
+      return row.kind === 'question' ? this.stateOf(row.chatId) : (this.subjectActivity[row.key] || this.stateOf(row.chatId));
+    },
     checks: (pr) => checksState(pr),
     review: (pr) => reviewState(pr),
     pushed: (pr) => pushedSinceReview(pr),
@@ -696,7 +711,8 @@ export default {
             v-for="row in shownAttention"
             :key="row.kind + row.key"
             class="dash__row"
-            :class="{ 'dash__row--chat': row.chatId }"
+            :class="[{ 'dash__row--chat': row.chatId }, rowState(row) ? `dash__row--${ rowState(row) }` : '']"
+            :data-chat-state="rowState(row) || null"
             :data-testid="`attention-${ row.kind }`"
           >
             <span
@@ -1354,6 +1370,22 @@ export default {
         background: var(--conv-mint);
         box-shadow: inset 3px 0 0 var(--conv-accent);
       }
+
+      // Its chat is working: a deeper green, the edge pulsing like the agent's dot.
+      &--working {
+        background: var(--conv-working-bg);
+        animation:  dash-row-working 1.4s ease-in-out infinite;
+      }
+
+      // Its chat is waiting for you: orange, like the dot and the Question chip.
+      &--input {
+        background: var(--conv-waiting-bg);
+        box-shadow: inset 4px 0 0 var(--conv-orange);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        &--working { animation: none; box-shadow: inset 4px 0 0 var(--conv-working); }
+      }
     }
 
     &__kind {
@@ -1956,5 +1988,10 @@ export default {
 
 @keyframes dash-doing {
   50% { opacity: 0.25; }
+}
+
+@keyframes dash-row-working {
+  0%, 100% { box-shadow: inset 4px 0 0 var(--conv-working); }
+  50% { box-shadow: inset 4px 0 0 var(--conv-mint-line); }
 }
 </style>

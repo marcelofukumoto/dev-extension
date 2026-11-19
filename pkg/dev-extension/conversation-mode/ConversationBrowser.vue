@@ -9,6 +9,7 @@
 import {
   PROJECTS, subjectKey, subjectOf, shortRef, checksState, reviewState, pushedSinceReview, blockedReason, projectOf, chatsBySubject, ago
 } from './projects.mjs';
+import { activityBySubject } from './rail.mjs';
 import ReviewerMarks from './ReviewerMarks.vue';
 
 const TABS = [
@@ -34,6 +35,8 @@ export default {
     work:     { type: Object, default: () => ({ mine: [], reviewing: [], issues: [] }) },
     chats:    { type: Array, default: () => [] },
     links:    { type: Object, default: () => ({}) },
+    /** chat id -> agent state: a row whose chat is working, or waiting for you, says so in its colour. */
+    activity: { type: Object, default: () => ({}) },
     starting: { type: String, default: '' },
     loadedAt: { type: Number, default: 0 },
   },
@@ -55,6 +58,11 @@ export default {
   },
 
   computed: {
+    /** `repo#n` -> the most urgent state of its chats (rail.mjs). */
+    subjectActivity() {
+      return activityBySubject(this.chats, this.links, this.activity);
+    },
+
     TABS:     () => TABS,
     PROJECTS: () => PROJECTS,
 
@@ -194,6 +202,11 @@ export default {
 
     chatOf(x) {
       return this.chatFor[subjectKey(x.repo, x.number)] || '';
+    },
+
+    /** What a row with a chat is coloured by: its chats' most urgent state; '' without a chat. */
+    rowState(x) {
+      return this.chatOf(x) ? (this.subjectActivity[subjectKey(x.repo, x.number)] || 'none') : '';
     },
 
     isStarting(x) {
@@ -380,7 +393,8 @@ export default {
             <tr
               v-for="x in filtered"
               :key="x.key || refOf(x)"
-              :class="{ 'br__row--chat': chatOf(x) }"
+              :class="[{ 'br__row--chat': chatOf(x) }, rowState(x) ? `br__row--${ rowState(x) }` : '']"
+              :data-chat-state="rowState(x) || null"
             >
               <td class="br__td-title">
                 <button
@@ -651,6 +665,23 @@ export default {
       &:first-child { box-shadow: inset 3px 0 0 var(--conv-accent); }
     }
 
+    // Its chat is working: a deeper green, the edge pulsing. Waiting for you: orange.
+    &__row--working td {
+      background: var(--conv-working-bg);
+
+      &:first-child { animation: br-row-working 1.4s ease-in-out infinite; }
+    }
+
+    &__row--input td {
+      background: var(--conv-waiting-bg);
+
+      &:first-child { box-shadow: inset 4px 0 0 var(--conv-orange); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      &__row--working td:first-child { animation: none; box-shadow: inset 4px 0 0 var(--conv-working); }
+    }
+
     &__td-title {
       min-width: 300px;
     }
@@ -727,4 +758,9 @@ export default {
       &--approved { background: var(--conv-ok-bg); color: var(--conv-ok); }
     }
   }
+
+@keyframes br-row-working {
+  0%, 100% { box-shadow: inset 4px 0 0 var(--conv-working); }
+  50% { box-shadow: inset 4px 0 0 var(--conv-mint-line); }
+}
 </style>

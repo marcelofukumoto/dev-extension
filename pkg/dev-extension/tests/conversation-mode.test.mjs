@@ -916,3 +916,22 @@ test('askGithub: an empty or cut-off answer, a dropped connection and a 50x are 
   assert.ok(!denied.retriable);
   assert.equal((await fails(answer(200, '{"errors":[{"message":"Something went wrong"}]}'))).message, 'Something went wrong');
 });
+
+// ── A row says what its chats are doing ────────────────────────────────────────────────────────
+
+test('activityBySubject: each issue or pull request takes the most urgent state of its chats', async() => {
+  const { activityBySubject } = await import('../conversation-mode/rail.mjs');
+  const chats = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' }];
+  const links = {
+    a: { subject: { repo: 'rancher/dashboard', number: 1 } },
+    b: { subject: { repo: 'rancher/dashboard', number: 1 } },
+    c: { subject: { repo: 'rancher/dashboard', number: 2 } },
+    d: { subject: { repo: 'rancher/dashboard', number: 2 } },
+    e: { subject: { repo: 'rancher/dashboard', number: 3 } },
+  };
+  const out = activityBySubject(chats, links, { a: 'idle', b: 'working', c: 'working', d: 'input' });
+
+  // Waiting for you outranks working; working outranks idle; a chat with no state is not running.
+  assert.deepEqual(out, { 'rancher/dashboard#1': 'working', 'rancher/dashboard#2': 'input', 'rancher/dashboard#3': 'none' });
+  assert.deepEqual(activityBySubject(), {});
+});

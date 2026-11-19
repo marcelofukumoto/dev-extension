@@ -765,6 +765,7 @@ export default {
       :work="work"
       :chats="chats"
       :links="links"
+      :activity="activity"
       :starting="starting"
       :loaded-at="workLoadedAt"
       @open-chat="openChat"
@@ -818,6 +819,10 @@ export default {
     --conv-accent:       #4cae6b;
     --conv-mint:         #e8f5ee;
     --conv-mint-line:    #d4e8db;
+    // A row whose chat is working (a deeper green, its edge pulsing) or waiting for you (orange).
+    --conv-working-bg:   #d5eedd;
+    --conv-working:      #2e8b4e;
+    --conv-waiting-bg:   #fdf0e6;
     --conv-orange:       #ee7a3b;
     --conv-orange-text:  #9f461d;
     --conv-link:         #3447ff;
