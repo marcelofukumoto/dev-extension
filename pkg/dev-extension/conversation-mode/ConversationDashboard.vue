@@ -26,12 +26,12 @@ const ATTENTION_SHOWN = 10;
 const CHATS_SHOWN = 10;
 
 const KIND_LABEL = {
-  question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', maintain: 'Maintainer', ready: 'Ready', waiting: 'Waiting review request'
+  question: 'Question', blocked: 'Blocked', review: 'Review', rereview: 'Re-review', ready: 'Ready', waiting: 'Waiting review request'
 };
 
 const FILTERS = [
   { id: 'all', label: 'All', kinds: null },
-  { id: 'reviews', label: 'Reviews', kinds: ['review', 'rereview', 'maintain', 'waiting'] },
+  { id: 'reviews', label: 'Reviews', kinds: ['review', 'rereview', 'waiting'] },
   { id: 'blocked', label: 'Blocked', kinds: ['blocked'] },
   { id: 'questions', label: 'Questions', kinds: ['question'] },
   { id: 'ready', label: 'Ready', kinds: ['ready'] },
@@ -849,7 +849,7 @@ export default {
                 :href="row.url"
                 target="_blank"
                 rel="noopener noreferrer"
-              >{{ ['review', 'rereview', 'maintain'].includes(row.kind) ? 'Review' : 'Open' }}</a>
+              >{{ ['review', 'rereview'].includes(row.kind) ? 'Review' : 'Open' }}</a>
             </div>
           </li>
         </ul>
@@ -1367,7 +1367,6 @@ export default {
 
       &--review,
       &--rereview,
-      &--maintain { background: var(--conv-review-bg); color: var(--conv-review); }
       &--question { background: var(--conv-question-bg); color: var(--conv-question); }
       &--blocked { background: var(--conv-blocked-bg); color: var(--conv-blocked); }
       &--ready { background: var(--conv-ok-bg); color: var(--conv-ok); }

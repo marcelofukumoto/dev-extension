@@ -747,7 +747,7 @@ test('nothing to do: on your own pull requests the author is no likeness - only 
 
 // ── Repositories you maintain ──────────────────────────────────────────────────────────────────
 
-test('maintained repositories: every open pull request, the bots\' included, as Maintainer rows', async() => {
+test('maintained repositories: every open pull request is fetched, and none is a row unless asked of you', async() => {
   const { sectionSearches, shapeSection } = await import('../conversation-mode/server/github.mjs');
   const { MAINTAINED, PROJECTS: P } = await import('../conversation-mode/projects.mjs');
   const rancher = P.find((p) => p.id === 'rancher').repos;
@@ -762,13 +762,13 @@ test('maintained repositories: every open pull request, the bots\' included, as 
 
   assert.deepEqual(answer.reviewing.map((p) => [p.number, p.maintained]), [[87, true], [85, true]]);
 
-  // Asked of you as well: the review row, not the maintainer one (mergeWork keeps the first answer).
+  // Asked of you as well: the review row (mergeWork keeps the first answer); the rest wait for a
+  // process of their own - pushed to since your review or not.
   const asked = { ...answer.reviewing[0], maintained: false, reviewRequested: true };
-  const work = mergeWork([{ login: 'me', reviewing: [asked] }, answer]);
-  const rows = attentionRows(work);
+  const reviewed = { ...answer.reviewing[1], reviewedAt: '2026-11-18T08:00:00Z', pushedAt: '2026-11-19T08:00:00Z', myReview: 'COMMENTED' };
+  const work = mergeWork([{ login: 'me', reviewing: [asked] }, { ...answer, reviewing: [answer.reviewing[0], reviewed] }]);
 
-  assert.deepEqual(rows.map((r) => `${ r.kind }:${ r.subject.number }`), ['review:87', 'maintain:85']);
-  assert.equal(rows[1].why, 'From app/dependabot · a repository you maintain');
+  assert.deepEqual(attentionRows(work).map((r) => `${ r.kind }:${ r.subject.number }`), ['review:87']);
 });
 
 test('nothing to do: a reason renamed carries its rows and what was learned; deleted, it is offered no more', async() => {
