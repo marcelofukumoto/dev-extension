@@ -157,6 +157,37 @@ export function lastUpdated(chats = [], transcripts = {}, made = {}) {
   return Object.fromEntries(chats.map((c) => [c.id, Math.max(Date.parse(transcripts[c.id]?.last || '') || 0, made[c.id] || 0)]));
 }
 
+/**
+ * Needs your attention, the row that moved last first, like the chats: a row's time is the newer of
+ * its chats' last message (lastUpdated; a question's own chat) and what GitHub last saw happen to
+ * it (`at`). Each row gets `updated` (that time, ms) and `chatUpdated` (its chats' part of it); rows
+ * with no time at all keep the order they came in (attentionRows': most urgent kind first), after.
+ */
+export function attentionByLastUpdated(rows = [], chats = [], links = {}, lastAt = {}) {
+  const bySubject = {};
+
+  for (const chat of chats) {
+    const s = links[chat.id]?.subject;
+
+    if (s) {
+      const key = subjectKey(s.repo, s.number);
+
+      bySubject[key] = Math.max(bySubject[key] || 0, lastAt[chat.id] || 0);
+    }
+  }
+
+  return rows
+    .map((row, i) => {
+      const chat = row.kind === 'question' ? (lastAt[row.chatId] || 0) : (bySubject[row.key] || 0);
+
+      return {
+        row: { ...row, updated: Math.max(chat, Date.parse(row.at || '') || 0), chatUpdated: chat }, i
+      };
+    })
+    .sort((a, b) => (b.row.updated - a.row.updated) || (a.i - b.i))
+    .map(({ row }) => row);
+}
+
 /** The chats, the one that moved last first; the ones not known yet after, in the order they came. */
 export function byLastUpdated(chats = [], lastAt = {}) {
   return [...chats].sort((a, b) => (lastAt[b.id] || 0) - (lastAt[a.id] || 0));

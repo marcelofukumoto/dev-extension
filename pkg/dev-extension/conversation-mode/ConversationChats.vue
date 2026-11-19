@@ -294,7 +294,8 @@ export default {
             :key="item.key"
             type="button"
             class="chats__item"
-            :class="{ 'chats__item--on': currentItem && item.key === currentItem.key }"
+            :class="[{ 'chats__item--on': currentItem && item.key === currentItem.key }, `chats__item--${ item.activity }`]"
+            :data-chat-state="item.activity"
             :title="itemTitle(item)"
             :data-testid="`rail-item-${ item.key }`"
             @click="openItem(item)"
@@ -638,8 +639,27 @@ export default {
 
       &--on {
         background: var(--conv-mint);
+        outline:    1px solid var(--conv-mint-line);
 
         &:hover { background: var(--conv-mint); }
+      }
+
+      // Its chat is working: the dashboard's working green, the edge pulsing with the dot. Waiting
+      // for you: orange. Over the selection's mint and the hover, which keep only their outline.
+      &--working,
+      &--working:hover {
+        background: var(--conv-working-bg);
+        animation:  chats-item-working 1.4s ease-in-out infinite;
+      }
+
+      &--input,
+      &--input:hover {
+        background: var(--conv-waiting-bg);
+        box-shadow: inset 4px 0 0 var(--conv-orange);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        &--working { animation: none; box-shadow: inset 4px 0 0 var(--conv-working); }
       }
 
       .chats__dot { margin-top: 6px; }
@@ -959,6 +979,11 @@ export default {
   @keyframes chats-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.35; }
+  }
+
+  @keyframes chats-item-working {
+    0%, 100% { box-shadow: inset 4px 0 0 var(--conv-working); }
+    50% { box-shadow: inset 4px 0 0 var(--conv-mint-line); }
   }
 </style>
 

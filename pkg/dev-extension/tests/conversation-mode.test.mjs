@@ -935,3 +935,28 @@ test('activityBySubject: each issue or pull request takes the most urgent state 
   assert.deepEqual(out, { 'rancher/dashboard#1': 'working', 'rancher/dashboard#2': 'input', 'rancher/dashboard#3': 'none' });
   assert.deepEqual(activityBySubject(), {});
 });
+
+test('Needs your attention goes newest first: a row\'s chat or GitHub, whichever moved last', async() => {
+  const { attentionByLastUpdated } = await import('../conversation-mode/rail.mjs');
+  const rows = [
+    { kind: 'question', key: 'chat:q', chatId: 'q', at: '' },
+    { kind: 'blocked', key: 'rancher/dashboard#1', at: '2026-11-19T08:00:00Z' },
+    { kind: 'review', key: 'rancher/dashboard#2', at: '2026-11-19T09:00:00Z' },
+    { kind: 'review', key: 'rancher/dashboard#3', at: '2026-11-19T07:00:00Z' },
+    { kind: 'ready', key: 'rancher/dashboard#4', at: '' },
+  ];
+  const chats = [{ id: 'q' }, { id: 'a' }, { id: 'b' }];
+  const links = {
+    a: { subject: { repo: 'rancher/dashboard', number: 3 } },
+    b: { subject: { repo: 'rancher/dashboard', number: 3 } },
+  };
+  const ms = (iso) => Date.parse(iso);
+  const out = attentionByLastUpdated(rows, chats, links, { q: ms('2026-11-19T08:30:00Z'), a: ms('2026-11-19T06:00:00Z'), b: ms('2026-11-19T10:00:00Z') });
+
+  // #3's newest chat (10:00) beats GitHub's 09:00 on #2; the question's chat sits by its own time;
+  // a row with no time at all goes last.
+  assert.deepEqual(out.map((r) => r.key), ['rancher/dashboard#3', 'rancher/dashboard#2', 'chat:q', 'rancher/dashboard#1', 'rancher/dashboard#4']);
+  assert.equal(out[0].chatUpdated, ms('2026-11-19T10:00:00Z'));
+  assert.equal(out[1].chatUpdated, 0);
+  assert.equal(out[1].updated, ms('2026-11-19T09:00:00Z'));
+});

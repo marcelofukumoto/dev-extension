@@ -12,7 +12,7 @@ import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
 import {
-  railSections, isArchived, byLastUpdated, activityBySubject
+  railSections, isArchived, byLastUpdated, activityBySubject, attentionByLastUpdated
 } from './rail.mjs';
 import { doingText } from './transcript-read.mjs';
 import {
@@ -114,9 +114,12 @@ export default {
       return `${ greeting(new Date(this.now)) }${ who ? `, ${ who }` : '' }`;
     },
 
-    /** Every row, marked or not; a question's stamp is the last thing its agent did. */
+    /**
+     * Every row, marked or not, the one that moved last first (its chat's last message or GitHub's
+     * last update, the newer); a question's stamp is the last thing its agent did.
+     */
     allAttention() {
-      return withQuestionStamps(attentionRows(this.work, this.chats, this.activity, this.links), this.transcripts);
+      return attentionByLastUpdated(withQuestionStamps(attentionRows(this.work, this.chats, this.activity, this.links), this.transcripts), this.chats, this.links, this.lastAt);
     },
 
     /** What needs you: the rows nobody marked "Nothing to do", or that changed since. */
@@ -182,7 +185,7 @@ export default {
       return f?.kinds ? this.inRepos.filter((r) => f.kinds.includes(r.kind)) : this.inRepos;
     },
 
-    /** The most urgent first, ATTENTION_SHOWN of them unless all were asked for. */
+    /** The one that moved last first, ATTENTION_SHOWN of them unless all were asked for. */
     shownAttention() {
       return this.attentionAll ? this.filteredAttention : this.filteredAttention.slice(0, ATTENTION_SHOWN);
     },
@@ -492,6 +495,12 @@ export default {
     when(iso) {
       return ago(iso, this.now);
     },
+    /** The time a row of Needs your attention is sorted by: "chat 2m ago" when its chat is the newer. */
+    rowWhen(row) {
+      const at = this.when(new Date(row.updated).toISOString());
+
+      return row.chatUpdated && row.chatUpdated >= (Date.parse(row.at || '') || 0) ? `chat ${ at }` : at;
+    },
   },
 };
 </script>
@@ -733,7 +742,7 @@ export default {
               <span class="dash__row-meta">
                 <template v-if="row.subject">{{ refOf(row.subject) }}</template>
                 <template v-if="row.why"> · {{ row.why }}</template>
-                <template v-if="row.at"> · {{ when(row.at) }}</template>
+                <template v-if="row.updated"> · {{ rowWhen(row) }}</template>
                 <template v-if="row.kind === 'question'"> · the agent is waiting for your answer</template>
               </span>
               <ReviewerMarks
