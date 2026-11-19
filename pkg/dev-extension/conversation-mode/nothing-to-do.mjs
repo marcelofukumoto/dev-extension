@@ -32,7 +32,7 @@ export const STARTER_REASONS = [
 export const DRAFT_REASON = STARTER_REASONS[0];
 
 /** The rows about somebody else's pull request, where who wrote it says something. */
-const REVIEW_KINDS = new Set(['review', 'rereview', 'waiting']);
+const REVIEW_KINDS = new Set(['review', 'rereview', 'maintain', 'waiting']);
 
 export function emptyMarks() {
   return { marks: {}, reasons: {}, history: [] };

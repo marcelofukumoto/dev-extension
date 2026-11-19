@@ -105,6 +105,9 @@ export function statusOf(section, subject, found, hasChats = true) {
 
 /** A pull request you review, where it stands (statusOf's REVIEWER half, before "Draft"). */
 function reviewerStatus(it) {
+  if (it.maintained) {
+    return { text: 'In a repo you maintain', tone: '', stage: 0 };
+  }
   if ((it.approved || it.reviewDecision === 'APPROVED') && it.reviewedAt) {
     return { text: 'Approved', tone: 'ok', stage: 4 };
   }

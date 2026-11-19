@@ -24,6 +24,13 @@ export const PROJECTS = [
 ];
 
 /** The longest query a group makes, to keep the cap above honest (tests check it). */
+/**
+ * The repositories you maintain: every open pull request in them is yours to look at - the bots'
+ * (Dependabot, the shell bump, Renovate) included, which ask nobody for a review and so match none
+ * of the other searches. Each must also be in PROJECTS.
+ */
+export const MAINTAINED = ['rancher/ui-locales'];
+
 export const SEARCH_TAIL = ' is:open is:pr user-review-requested:@me -author:@me archived:false';
 
 export function projectOf(repo) {
@@ -223,7 +230,7 @@ export function isArchived(link) {
 }
 
 const RANK = {
-  question: 0, blocked: 1, review: 2, rereview: 3, ready: 4, waiting: 5
+  question: 0, blocked: 1, review: 2, rereview: 3, maintain: 3, ready: 4, waiting: 5
 };
 
 /**
@@ -234,6 +241,7 @@ const RANK = {
  * - review:   GitHub is asking you for a review now
  * - rereview: you reviewed it, and you were asked to review it again
  * - ready:    yours, approved, checks not failing, not a draft
+ * - maintain: open in a repository you maintain (MAINTAINED), and nobody asked you or heard from you on it
  * - waiting:  you reviewed it and it was pushed to since, but nobody has asked you again yet -
  *             the author's next step (GitHub's re-request button beside your name), so last
  *
@@ -282,6 +290,10 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
     } else if (pr.reviewRequested) {
       rows.push({
         kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('review', pr),
+      });
+    } else if (pr.maintained) {
+      rows.push({
+        kind: 'maintain', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author } · a repository you maintain`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('maintain', pr),
       });
     } else if (pushedSinceReview(pr)) {
       const since = pr.myReview === 'CHANGES_REQUESTED' ? 'you asked for changes' : 'your review';

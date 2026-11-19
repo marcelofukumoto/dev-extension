@@ -744,3 +744,29 @@ test('nothing to do: on your own pull requests the author is no likeness - only 
   assert.equal(N.suggestion(mine(19887, 'Failing: Description · Unticked: "UX"'), doc), null);
   assert.equal(N.suggestion(mine(19999, 'Failing: Description, validate, unit-test (+3 more)'), doc).reason, 'Waiting on someone else');
 });
+
+// ── Repositories you maintain ──────────────────────────────────────────────────────────────────
+
+test('maintained repositories: every open pull request, the bots\' included, as Maintainer rows', async() => {
+  const { sectionSearches, shapeSection } = await import('../conversation-mode/server/github.mjs');
+  const { MAINTAINED, PROJECTS: P } = await import('../conversation-mode/projects.mjs');
+  const rancher = P.find((p) => p.id === 'rancher').repos;
+
+  assert.deepEqual(sectionSearches(rancher, 'maintained', MAINTAINED), { maintained: 'repo:rancher/ui-locales is:open is:pr -author:@me archived:false' });
+  assert.equal(Object.keys(sectionSearches(rancher, 'reviewing', MAINTAINED)).join(','), 'requested,reviewed');
+
+  const node = (number, author) => ({
+    number, title: `pr ${ number }`, url: 'u', author: { login: author }, repository: { nameWithOwner: 'rancher/ui-locales' }, updatedAt: '2026-11-19T08:00:00Z'
+  });
+  const answer = shapeSection('maintained', { viewer: { login: 'me' }, maintained: { nodes: [node(87, 'app/github-actions'), node(85, 'app/dependabot')] } });
+
+  assert.deepEqual(answer.reviewing.map((p) => [p.number, p.maintained]), [[87, true], [85, true]]);
+
+  // Asked of you as well: the review row, not the maintainer one (mergeWork keeps the first answer).
+  const asked = { ...answer.reviewing[0], maintained: false, reviewRequested: true };
+  const work = mergeWork([{ login: 'me', reviewing: [asked] }, answer]);
+  const rows = attentionRows(work);
+
+  assert.deepEqual(rows.map((r) => `${ r.kind }:${ r.subject.number }`), ['review:87', 'maintain:85']);
+  assert.equal(rows[1].why, 'From app/dependabot · a repository you maintain');
+});

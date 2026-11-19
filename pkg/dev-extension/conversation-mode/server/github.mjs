@@ -28,8 +28,9 @@ const ISSUE_FIELDS = `
 `;
 
 /** The searches one section is, as `alias: query` pairs. */
-export function sectionSearches(repos, section) {
+export function sectionSearches(repos, section, maintained = []) {
   const scope = repos.map((r) => `repo:${ r }`).join(' ');
+  const ours = repos.filter((r) => maintained.includes(r));
 
   if (section === 'mine') {
     return { mine: `${ scope } is:open is:pr author:@me archived:false` };
@@ -40,13 +41,18 @@ export function sectionSearches(repos, section) {
       reviewed:  `${ scope } is:open is:pr reviewed-by:@me -author:@me archived:false`,
     };
   }
+  if (section === 'maintained') {
+    // Everything open in the repositories you maintain (projects.mjs, MAINTAINED); a query of its
+    // own, so the review searches stay inside GitHub's ten seconds.
+    return { maintained: `${ ours.map((r) => `repo:${ r }`).join(' ') } is:open is:pr -author:@me archived:false` };
+  }
 
   return { issues: `${ scope } is:open is:issue assignee:@me archived:false` };
 }
 
 /** One GraphQL query for one section of one product. */
-export function sectionQuery(repos, section) {
-  const searches = sectionSearches(repos, section);
+export function sectionQuery(repos, section, maintained = []) {
+  const searches = sectionSearches(repos, section, maintained);
   const fields = section === 'issues' ? `... on Issue { ${ ISSUE_FIELDS } }` : `... on PullRequest { ${ PR_FIELDS } }`;
   const first = section === 'issues' ? 50 : 30;
 
@@ -206,6 +212,13 @@ export function shapeSection(section, data) {
 
     return {
       login, mine: [], reviewing: [...requested, ...reviewed], issues: []
+    };
+  }
+  if (section === 'maintained') {
+    // Yours to look at as the repository's maintainer. One that is also asked of you or reviewed by
+    // you comes from those searches first (mergeWork keeps the first), and is that instead.
+    return {
+      login, mine: [], reviewing: nodes('maintained').map((n) => ({ ...shapePr(n, login, false), maintained: true })), issues: []
     };
   }
 

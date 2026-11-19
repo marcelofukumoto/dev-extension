@@ -15,7 +15,9 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PROJECTS, CARDS, mergeWork } from '../projects.mjs';
+import {
+  PROJECTS, CARDS, MAINTAINED, mergeWork
+} from '../projects.mjs';
 import {
   sectionQuery, shapeSection, projectQuery, shapeProject, askGithub
 } from './github.mjs';
@@ -135,9 +137,11 @@ async function refresh(reason) {
       return true;
     }
     // Your work, per product and section, then the software project cards - one pool, two at a time.
+    // The maintained search only for a product with a repository you maintain, and after its
+    // review searches, so mergeWork keeps a pull request asked of you as that.
     const jobs = [
-      ...PROJECTS.flatMap((p) => SECTIONS.map((section) => ({
-        label: `${ p.name } ${ section }`, query: sectionQuery(p.repos, section), shape: (d) => shapeSection(section, d)
+      ...PROJECTS.flatMap((p) => [...SECTIONS, ...(p.repos.some((r) => MAINTAINED.includes(r)) ? ['maintained'] : [])].map((section) => ({
+        label: `${ p.name } ${ section }`, work: true, query: sectionQuery(p.repos, section, MAINTAINED), shape: (d) => shapeSection(section, d)
       }))),
       ...CARDS.map((card) => ({
         label: `${ card.name } project`, card, query: projectQuery(card), shape: (d) => shapeProject(card, d)
@@ -166,7 +170,7 @@ async function refresh(reason) {
       }
     }));
     state.errors = results.map((r, i) => (r.error ? `${ jobs[i].label }: ${ r.error.message }` : '')).filter(Boolean);
-    const workCount = PROJECTS.length * SECTIONS.length;
+    const workCount = jobs.filter((j) => j.work).length;
 
     lastAnswers = jobs.slice(0, workCount).map((_, i) => results[i].value || lastAnswers[i] || null);
     jobs.slice(workCount).forEach((job, j) => {

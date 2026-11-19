@@ -15,6 +15,7 @@ const TABS = [
   { id: 'mine', label: 'My pull requests' },
   { id: 'requested', label: 'Review requested' },
   { id: 'reviewed', label: 'Reviewed by me' },
+  { id: 'maintained', label: 'In repos I maintain' },
   { id: 'issues', label: 'Issues assigned to me' },
 ];
 
@@ -62,8 +63,9 @@ export default {
 
       return {
         mine:      this.work.mine || [],
-        requested: reviewing.filter((p) => p.reviewRequested),
-        reviewed:  reviewing.filter((p) => !p.reviewRequested),
+        requested:  reviewing.filter((p) => p.reviewRequested),
+        reviewed:   reviewing.filter((p) => !p.reviewRequested && !p.maintained),
+        maintained: reviewing.filter((p) => p.maintained),
         issues:    this.work.issues || [],
       };
     },
