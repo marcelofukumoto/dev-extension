@@ -34,7 +34,7 @@ import { readLinks, updateLinks } from './links';
 import { readTranscripts } from './transcripts';
 import { readMarks } from './marks';
 import { emptyMarks, withQuestionStamps, quietKeys } from './nothing-to-do.mjs';
-import { lastUpdated } from './rail.mjs';
+import { lastUpdated, byLastUpdated } from './rail.mjs';
 import { myWork, pullRequest, issuesByNumber } from '../github';
 import { fetchWork, requestRefresh, listenForWork } from './work-client';
 
@@ -64,6 +64,8 @@ const WORK_AFTER_TURN_DELAY_MS = 15000;
 
 /** The last answer, kept in this browser so the dashboard draws at once on the next visit. */
 const WORK_CACHE_KEY = 'conversation-mode.work.v1';
+/** The chat last open in this browser: the Chats view opens on it rather than on the first chat. */
+const LAST_CHAT_KEY = 'conversation-last-chat';
 
 /** What is asked of GitHub per product, one query each: see loadWork(). */
 const SECTIONS = [
@@ -218,7 +220,7 @@ export default {
         if (v === 'chat') {
           this.chatsShown = true;
           if (!this.current && this.chats.length) {
-            this.go('chat', this.chats[0].id, true);
+            this.go('chat', this.openingChat(this.chats), true);
           }
         }
       },
@@ -226,7 +228,18 @@ export default {
 
     chats(list) {
       if (this.view === 'chat' && !this.current && list.length) {
-        this.go('chat', list[0].id, true);
+        this.go('chat', this.openingChat(list), true);
+      }
+    },
+
+    /** Remembered, so the next visit to Chats opens here. */
+    current(id) {
+      if (id) {
+        try {
+          window.localStorage.setItem(LAST_CHAT_KEY, id);
+        } catch {
+          // A private window or blocked storage: Chats opens on the chat that moved last instead.
+        }
       }
     },
   },
@@ -572,6 +585,25 @@ export default {
         this.creating = false;
         this.starting = '';
       }
+    },
+
+    /**
+     * The chat Chats opens on when none is asked for: the one last open in this browser, if it is
+     * still there; else the one that moved last; else the first.
+     */
+    openingChat(list) {
+      let last = '';
+
+      try {
+        last = window.localStorage.getItem(LAST_CHAT_KEY) || '';
+      } catch {
+        last = '';
+      }
+      if (last && list.some((c) => c.id === last)) {
+        return last;
+      }
+
+      return (byLastUpdated(list, this.lastAt)[0] || list[0]).id;
     },
 
     openChat(id) {
