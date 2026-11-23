@@ -400,8 +400,12 @@ export default {
                   >{{ p.repo.split('/').pop() }}#{{ p.number }}{{ n < i.started.mentions.length - 1 ? ', ' : '' }}</a>
                 </span>
               </td>
-              <td>{{ i.status || '—' }}</td>
-              <td>{{ i.milestone || '—' }}</td>
+              <td class="pk__nowrap">
+                {{ i.status || '—' }}
+              </td>
+              <td class="pk__nowrap">
+                {{ i.milestone || '—' }}
+              </td>
               <td>{{ i.priority ? i.priority.replace(/^priority\//, 'P') : '—' }}</td>
               <td class="pk__people">
                 {{ i.assignees.length ? i.assignees.join(', ') : '—' }}
@@ -448,6 +452,13 @@ export default {
 </template>
 
 <style lang="scss" scoped>
+// Rancher's global `button` rule gives every button a 40px min-height and its own line-height:
+// undone for this dialog's buttons, as the dashboard does for its own.
+.pk button {
+  min-height:  0;
+  line-height: 1.4;
+}
+
 .pk {
   position:        fixed;
   inset:           0;
@@ -664,9 +675,13 @@ export default {
   text-align:  left;
   white-space: normal;
 
+  line-height: 1.35;
+
   &:hover { text-decoration: underline; }
   &:disabled { cursor: default; opacity: 0.6; }
 }
+
+.pk__nowrap { white-space: nowrap; }
 
 .pk__meta {
   display:   flex;
