@@ -88,9 +88,35 @@ export default {
       return this.current ? (this.milestones[this.current.id] ?? ALL) : ALL;
     },
 
-    /** The current tab's milestones, from the issues the switch shows. */
+    /** What the table shows before the milestone narrows it: every issue, or the ones nobody started. */
+    shownIssues() {
+      return this.current ? (this.showStarted ? this.current.issues : this.current.free) : [];
+    },
+
+    /**
+     * Every milestone of the tab - started issues' too, so a milestone whose work is all taken is
+     * still there, at 0 - with how many the table would show in it.
+     */
     milestoneOptions() {
-      return this.current ? milestonesOf(this.showStarted ? this.current.issues : this.current.free) : [];
+      if (!this.current) {
+        return [];
+      }
+      const n = {};
+
+      for (const i of this.shownIssues) {
+        n[i.milestone] = (n[i.milestone] || 0) + 1;
+      }
+
+      return milestonesOf(this.current.issues).map((m) => ({ title: m.title, count: n[m.title] || 0 }));
+    },
+
+    /** Started issues in the chosen milestone: why it can be empty. */
+    startedInMilestone() {
+      if (!this.current || this.showStarted) {
+        return 0;
+      }
+
+      return this.current.issues.filter((i) => i.started.started && (this.milestone === ALL || i.milestone === this.milestone)).length;
     },
 
     startedCount() {
@@ -286,7 +312,7 @@ export default {
             data-testid="pickup-milestone"
             @change="setMilestone($event.target.value)"
           >
-            <option value="*">All milestones</option>
+            <option value="*">All milestones ({{ shownIssues.length }})</option>
             <option
               v-for="m in milestoneOptions"
               :key="m.title || 'none'"
@@ -438,7 +464,16 @@ export default {
           v-else-if="!loading && current"
           class="pk__none"
         >
-          Nothing to pick up here{{ milestone !== '*' ? ' in this milestone' : '' }}.
+          Nothing to pick up here{{ milestone !== '*' ? ` in ${ milestone || 'no milestone' }` : '' }}<template v-if="startedInMilestone">: {{ startedInMilestone === 1 ? 'its one issue is' : `all ${ startedInMilestone } of its issues are` }} started.
+            <button
+              type="button"
+              class="pk__link"
+              data-testid="pickup-show-them"
+              @click="showStarted = true"
+            >
+              Show them
+            </button>
+          </template><template v-else>.</template>
         </p>
         <p
           v-else-if="loading && !answer"
@@ -744,6 +779,15 @@ export default {
     background:   var(--conv-ink);
     color:        var(--conv-on-ink);
   }
+}
+
+.pk__link {
+  padding:     0;
+  border:      0;
+  background:  none;
+  color:       var(--conv-link);
+  cursor:      pointer;
+  font:        inherit;
 }
 
 .pk__none {
