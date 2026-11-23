@@ -5,7 +5,7 @@
 // the dashboard shows them in a dialog (PickupDialog.vue), narrowed to a milestone, with the issues
 // somebody already started set aside. Plain functions and strings, shared by the server and the
 // page, so the rules are tested without either.
-import { subjectKey } from './projects.mjs';
+import { subjectKey, PROJECTS, CARDS } from './projects.mjs';
 
 /** The tabs, in the order they are shown. A new one is a line here. */
 export const PICKUP_TABS = [
@@ -25,6 +25,20 @@ export const PICKUP_TABS = [
 
 /** At most this many pages of 100 per tab. */
 export const PICKUP_PAGES = 3;
+
+/**
+ * The repositories UI code lives in: every one the dashboard tracks (projects.mjs, PROJECTS) but
+ * the ones that only hold a card's issues (harvester/harvester, longhorn/longhorn - backends and
+ * trackers) and docs. A pull request that only mentions an issue is a start only here: a backend
+ * PR that mentions a UI issue in passing is not UI work on it - rancher/dashboard#10215 was hidden by
+ * rancher/rancher#52917, a stale Copilot draft that fixes a backend issue and names it once.
+ */
+export const UI_REPOS = (() => {
+  const code = new Set(CARDS.map((c) => c.repo));
+  const issuesOnly = new Set(CARDS.map((c) => c.issues).filter((r) => !code.has(r)));
+
+  return [...new Set(PROJECTS.flatMap((p) => p.repos))].filter((r) => !issuesOnly.has(r) && !/\/docs$/.test(r));
+})();
 
 /** Project statuses that mean somebody is on it already, PR or not. */
 export const STARTED_STATUSES = ['Working', 'Review'];
@@ -168,13 +182,13 @@ export function shapeSearch(data) {
 
 /**
  * Whether somebody already started an issue, and why: a pull request that would close it, open or
- * merged; any open pull request that mentions it; or a project status that says so (Working,
- * Review). A merged pull request that only mentions it is not a start - a mention is not a fix -
- * and is handed back in `mentions` for the table to say.
+ * merged, from any repository; an open pull request in a UI repository (UI_REPOS) that mentions
+ * it; or a project status that says so (Working, Review). A merged pull request that only mentions
+ * it is not a start - a mention is not a fix - and is handed back in `mentions` for the table to say.
  */
 export function startedBy(issue) {
   const prs = issue.prs || [];
-  const by = prs.filter((p) => (p.links && (p.state === 'OPEN' || p.state === 'MERGED')) || p.state === 'OPEN');
+  const by = prs.filter((p) => (p.links && (p.state === 'OPEN' || p.state === 'MERGED')) || (p.state === 'OPEN' && UI_REPOS.includes(p.repo)));
   const status = STARTED_STATUSES.includes(issue.status) ? issue.status : '';
 
   return {

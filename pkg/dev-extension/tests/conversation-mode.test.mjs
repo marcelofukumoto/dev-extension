@@ -1024,6 +1024,20 @@ test('find work: a PR made inside somebody\'s fork is no start', async() => {
   assert.equal(P.startedBy(issue).started, false);
 });
 
+test('find work: a mention is a start only from a UI repository; a fix from anywhere', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+  const s = (node) => P.startedBy(P.shapeIssue(node)).started;
+
+  assert.deepEqual(P.UI_REPOS, [
+    'rancher/dashboard', 'rancher/rancher-ai-ui', 'rancher/ui-configurable-views', 'rancher/security-ui-exts', 'rancher/ui-locales', 'rancher/longhorn-ui-extension',
+    'harvester/harvester-ui-extension', 'longhorn/longhorn-ui',
+  ]);
+  assert.equal(s(issueNode(10215, { mentions: [[pickupPr('rancher/rancher', 52917, 'OPEN', { isDraft: true }), false]] })), false, 'a backend PR that mentions it');
+  assert.equal(s(issueNode(31, { mentions: [[pickupPr('harvester/harvester', 1, 'OPEN'), false]] })), false, 'Harvester\'s backend repository');
+  assert.equal(s(issueNode(32, { mentions: [[pickupPr('harvester/harvester-ui-extension', 1236, 'OPEN'), false]] })), true, 'the Harvester UI');
+  assert.equal(s(issueNode(33, { closing: [pickupPr('rancher/rancher', 1, 'OPEN')] })), true, 'a backend PR that fixes it');
+});
+
 test('find work: a page keeps open issues only, with the project\'s status and priority', async() => {
   const P = await import('../conversation-mode/pickup.mjs');
   const page = P.shapeProjectItems({
