@@ -29,9 +29,8 @@ export const PICKUP_PAGES = 3;
 /**
  * The repositories UI code lives in: every one the dashboard tracks (projects.mjs, PROJECTS) but
  * the ones that only hold a card's issues (harvester/harvester, longhorn/longhorn - backends and
- * trackers) and docs. A pull request that only mentions an issue is a start only here: a backend
- * PR that mentions a UI issue in passing is not UI work on it - rancher/dashboard#10215 was hidden by
- * rancher/rancher#52917, a stale Copilot draft that fixes a backend issue and names it once.
+ * trackers) and docs. An open pull request here that mentions an issue says somebody may be on it
+ * ("Possibly started"); a backend PR naming a UI issue in passing says nothing of the kind.
  */
 export const UI_REPOS = (() => {
   const code = new Set(CARDS.map((c) => c.repo));
@@ -181,21 +180,27 @@ export function shapeSearch(data) {
 }
 
 /**
- * Whether somebody already started an issue, and why: a pull request that would close it, open or
- * merged, from any repository; an open pull request in a UI repository (UI_REPOS) that mentions
- * it; or a project status that says so (Working, Review). A merged pull request that only mentions
- * it is not a start - a mention is not a fix - and is handed back in `mentions` for the table to say.
+ * Whether somebody already started an issue, and why - only on evidence GitHub states: a pull
+ * request that would close it (linked, or "Fixes ..."), open or merged, from any repository but a
+ * fork; or a project status that says so (Working, Review). That is all that sets an issue aside.
+ *
+ * A pull request that only mentions it never does: a mention is a guess, and guessing hid issues
+ * nobody was on (rancher/dashboard#13792 behind a PR inside a fork, #10215 behind a stale backend
+ * draft). Mentions are handed back for the table to say instead: `possibly`, an open one in a UI
+ * repository (UI_REPOS) - somebody may be on it - and `mentions`, the rest (merged, or elsewhere).
  */
 export function startedBy(issue) {
   const prs = issue.prs || [];
-  const by = prs.filter((p) => (p.links && (p.state === 'OPEN' || p.state === 'MERGED')) || (p.state === 'OPEN' && UI_REPOS.includes(p.repo)));
+  const by = prs.filter((p) => p.links && (p.state === 'OPEN' || p.state === 'MERGED'));
   const status = STARTED_STATUSES.includes(issue.status) ? issue.status : '';
+  const mentioned = prs.filter((p) => !p.links && (p.state === 'OPEN' || p.state === 'MERGED'));
 
   return {
     started:  by.length > 0 || !!status,
     prs:      by,
     status,
-    mentions: prs.filter((p) => !p.links && p.state === 'MERGED'),
+    possibly: mentioned.filter((p) => p.state === 'OPEN' && UI_REPOS.includes(p.repo)),
+    mentions: mentioned.filter((p) => !(p.state === 'OPEN' && UI_REPOS.includes(p.repo))),
   };
 }
 

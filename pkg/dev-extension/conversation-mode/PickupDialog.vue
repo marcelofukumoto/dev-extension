@@ -37,6 +37,8 @@ export default {
     activity: { type: Object, default: () => ({}) },
     /** `repo#n` of the chat being started, so its button says so. */
     starting: { type: String, default: '' },
+    /** Your login: a pull request of yours says "yours". */
+    me:       { type: String, default: '' },
   },
 
   data() {
@@ -211,6 +213,10 @@ export default {
     /** The labels worth a glance: kind, priority, area and the JIRA mark; the rest are in the issue. */
     labelsOf: (issue) => issue.labels.filter((l) => /^(kind|priority|area)\/|^JIRA$/i.test(l.name)).slice(0, 4),
 
+    whose(p) {
+      return p.author && p.author === this.me ? 'yours' : (p.author ? `by ${ p.author }` : '');
+    },
+
     prText: (p) => `${ p.repo.split('/').pop() }#${ p.number } ${ p.state === 'MERGED' ? 'merged' : (p.draft ? 'draft' : 'open') }`,
 
     when(iso) {
@@ -324,7 +330,7 @@ export default {
         </label>
         <label
           class="pk__field pk__field--check"
-          :title="'Issues with a pull request open or merged that fixes them, an open pull request that mentions them, or a Working / Review status'"
+          :title="'Issues a pull request fixes (linked, or Fixes ...), open or merged, or with a Working / Review status. A pull request that only mentions an issue never sets it aside.'"
         >
           <input
             v-model="showStarted"
@@ -413,17 +419,33 @@ export default {
                   >{{ prText(p) }}{{ n < i.started.prs.length - 1 ? ', ' : '' }}</a>
                 </span>
                 <span
-                  v-else-if="i.started.mentions.length"
+                  v-if="!i.started.started && i.started.possibly.length"
+                  class="pk__possibly"
+                  data-testid="pickup-possibly"
+                  title="An open pull request in a UI repository mentions it without saying it fixes it: somebody may be on it"
+                >
+                  Possibly started:
+                  <a
+                    v-for="(p, n) in i.started.possibly"
+                    :key="p.url"
+                    :href="p.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ prText(p) }}, {{ whose(p) }}{{ n < i.started.possibly.length - 1 ? '; ' : '' }}</a>
+                  mentions it
+                </span>
+                <span
+                  v-if="!i.started.started && i.started.mentions.length"
                   class="pk__mention"
                 >
-                  Mentioned by merged
+                  Mentioned by
                   <a
                     v-for="(p, n) in i.started.mentions"
                     :key="p.url"
                     :href="p.url"
                     target="_blank"
                     rel="noopener noreferrer"
-                  >{{ p.repo.split('/').pop() }}#{{ p.number }}{{ n < i.started.mentions.length - 1 ? ', ' : '' }}</a>
+                  >{{ prText(p) }}{{ n < i.started.mentions.length - 1 ? ', ' : '' }}</a>
                 </span>
               </td>
               <td class="pk__nowrap">
@@ -736,6 +758,7 @@ export default {
 }
 
 .pk__started,
+.pk__possibly,
 .pk__mention {
   display:    block;
   margin-top: 4px;
@@ -745,6 +768,7 @@ export default {
 }
 
 .pk__started { color: var(--conv-muted); }
+.pk__possibly { color: var(--conv-orange-text); }
 .pk__mention { color: var(--conv-meta); font-style: italic; }
 
 .pk__people,

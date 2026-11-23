@@ -1193,6 +1193,7 @@ export default {
       :links="links"
       :activity="activity"
       :starting="starting"
+      :me="work.login"
       @close="pickupOpen = false"
       @open-chat="(id) => { pickupOpen = false; $emit('open-chat', id) }"
       @start-chat="(subject) => { pickupOpen = false; $emit('start-chat', subject) }"

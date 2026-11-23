@@ -993,20 +993,23 @@ const issueNode = (number, refs = {}) => ({
   timelineItems:                  { nodes: (refs.mentions || []).map(([p, willCloseTarget]) => ({ willCloseTarget, source: { __typename: 'PullRequest', ...p } })) },
 });
 
-test('find work: started is a fixing PR open or merged, any open PR, or a Working / Review status', async() => {
+test('find work: started is a fixing PR open or merged, or a Working / Review status', async() => {
   const P = await import('../conversation-mode/pickup.mjs');
   const s = (node, extra) => P.startedBy(P.shapeIssue(node, extra));
 
   assert.equal(s(issueNode(1)).started, false);
   assert.equal(s(issueNode(2, { closing: [pickupPr('rancher/dashboard', 10, 'MERGED')] })).started, true);
   assert.equal(s(issueNode(3, { closing: [pickupPr('rancher/dashboard', 11, 'CLOSED')] })).started, false, 'a closed, unmerged fix is no start');
-  assert.equal(s(issueNode(4, { mentions: [[pickupPr('longhorn/longhorn-ui', 1099, 'OPEN'), false]] })).started, true, 'an open PR that only mentions it');
+  const mentioned = s(issueNode(4, { mentions: [[pickupPr('longhorn/longhorn-ui', 1099, 'OPEN'), false]] }));
+
+  assert.equal(mentioned.started, false, 'an open PR that only mentions it: shown, as possibly started');
+  assert.deepEqual(mentioned.possibly.map((p) => p.number), [1099]);
   const merged = s(issueNode(5, { mentions: [[pickupPr('rancher/dashboard', 12, 'MERGED'), false]] }));
 
   assert.equal(merged.started, false, 'a merged PR that only mentions it is not a fix');
   assert.deepEqual(merged.mentions.map((p) => p.number), [12]);
   assert.deepEqual(s(issueNode(6), { status: 'Working' }), {
-    started: true, prs: [], status: 'Working', mentions: []
+    started: true, prs: [], status: 'Working', possibly: [], mentions: []
   });
   // The same PR as a closing reference and a mention is one PR, and it links.
   const both = P.shapeIssue(issueNode(7, { closing: [pickupPr('rancher/dashboard', 13, 'OPEN')], mentions: [[pickupPr('rancher/dashboard', 13, 'OPEN'), false]] }));
@@ -1024,18 +1027,30 @@ test('find work: a PR made inside somebody\'s fork is no start', async() => {
   assert.equal(P.startedBy(issue).started, false);
 });
 
-test('find work: a mention is a start only from a UI repository; a fix from anywhere', async() => {
+test('find work: only a fix or a status sets an issue aside - a mention never does, from anywhere', async() => {
   const P = await import('../conversation-mode/pickup.mjs');
-  const s = (node) => P.startedBy(P.shapeIssue(node)).started;
+  const st = (node) => P.startedBy(P.shapeIssue(node));
 
   assert.deepEqual(P.UI_REPOS, [
     'rancher/dashboard', 'rancher/rancher-ai-ui', 'rancher/ui-configurable-views', 'rancher/security-ui-exts', 'rancher/ui-locales', 'rancher/longhorn-ui-extension',
     'harvester/harvester-ui-extension', 'longhorn/longhorn-ui',
   ]);
-  assert.equal(s(issueNode(10215, { mentions: [[pickupPr('rancher/rancher', 52917, 'OPEN', { isDraft: true }), false]] })), false, 'a backend PR that mentions it');
-  assert.equal(s(issueNode(31, { mentions: [[pickupPr('harvester/harvester', 1, 'OPEN'), false]] })), false, 'Harvester\'s backend repository');
-  assert.equal(s(issueNode(32, { mentions: [[pickupPr('harvester/harvester-ui-extension', 1236, 'OPEN'), false]] })), true, 'the Harvester UI');
-  assert.equal(s(issueNode(33, { closing: [pickupPr('rancher/rancher', 1, 'OPEN')] })), true, 'a backend PR that fixes it');
+  // The guard: whatever the repository and state, a PR that only mentions an issue keeps it in the list.
+  for (const repo of [...P.UI_REPOS, 'rancher/rancher', 'harvester/harvester', 'harvester/docs', 'longhorn/longhorn', 'someone/elsewhere']) {
+    for (const state of ['OPEN', 'MERGED', 'CLOSED']) {
+      for (const isDraft of [false, true]) {
+        assert.equal(st(issueNode(40, { mentions: [[pickupPr(repo, 1, state, { isDraft }), false]] })).started, false, `${ repo } ${ state }${ isDraft ? ' draft' : '' }`);
+      }
+    }
+  }
+  // What the table says instead: an open one in a UI repository is "possibly started"; the rest are mentions.
+  const backend = st(issueNode(10215, { mentions: [[pickupPr('rancher/rancher', 52917, 'OPEN', { isDraft: true }), false]] }));
+
+  assert.deepEqual([backend.possibly.length, backend.mentions.map((p) => p.number)], [0, [52917]]);
+  assert.deepEqual(st(issueNode(32, { mentions: [[pickupPr('harvester/harvester-ui-extension', 1236, 'OPEN'), false]] })).possibly.map((p) => p.number), [1236]);
+  // A PR that would close it does set it aside, from a backend repository too.
+  assert.equal(st(issueNode(33, { closing: [pickupPr('rancher/rancher', 1, 'OPEN')] })).started, true);
+  assert.equal(st(issueNode(34, { mentions: [[pickupPr('rancher/rancher', 2, 'MERGED'), true]] })).started, true, 'a timeline reference that will close it');
 });
 
 test('find work: a page keeps open issues only, with the project\'s status and priority', async() => {
