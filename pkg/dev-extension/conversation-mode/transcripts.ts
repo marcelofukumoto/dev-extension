@@ -19,6 +19,8 @@ export interface ChatTranscript {
   step: string;
   /** When the chat last moved (ISO): its newest message, or when it was made; '' when unknown. */
   last: string;
+  /** The last message a person sent (up to 1500 characters), and when; null before there is one. */
+  said: { text: string, at: string } | null;
 }
 
 

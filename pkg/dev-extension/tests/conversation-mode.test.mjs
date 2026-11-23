@@ -1085,3 +1085,19 @@ test('find work: milestones in version order, no milestone last', async() => {
     { title: 'Planning', count: 1 }, { title: 'v1.11.0', count: 1 }, { title: 'v2.17.0', count: 2 }, { title: 'v2.18.0', count: 1 }, { title: '', count: 1 },
   ]);
 });
+
+// ── The last message you sent a chat ──────────────────────────────────────────────────────────
+
+test('the reader keeps the last message a person sent, not tool results, wrappers or interruptions', async() => {
+  const out = await readFake([
+    said('user', 'Review https://github.com/rancher/rancher-ai-ui/pull/355', '2026-11-23T09:00:00Z'),
+    said('assistant', [{ type: 'text', text: 'On it.' }], '2026-11-23T09:01:00Z'),
+    said('user', 'Should it include the optional third point?\nAnd post it as pending.', '2026-11-23T10:00:00Z'),
+    said('user', [{ type: 'tool_result', content: 'ok' }], '2026-11-23T10:01:00Z'),
+    said('user', '<command-name>/compact</command-name>', '2026-11-23T10:02:00Z'),
+    said('user', '[Request interrupted by user]', '2026-11-23T10:03:00Z'),
+    said('assistant', [{ type: 'text', text: 'Done.' }], '2026-11-23T10:04:00Z'),
+  ]);
+
+  assert.deepEqual(out.said, { text: 'Should it include the optional third point?\nAnd post it as pending.', at: '2026-11-23T10:00:00Z' });
+});

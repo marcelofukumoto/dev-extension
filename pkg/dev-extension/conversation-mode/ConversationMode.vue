@@ -181,6 +181,11 @@ export default {
 
     /** Each chat's links, as the links bar shows them (linkify.mjs). */
     /** chat id -> when it last moved (rail.mjs, lastUpdated): both views list the chats newest first. */
+    /** chat id -> the last message a person sent it ({ text, at }), from its transcript: the Chats view shows it on top. */
+    lastSaid() {
+      return Object.fromEntries(this.chats.map((c) => [c.id, this.transcripts[c.id]?.said || null]));
+    },
+
     lastAt() {
       return lastUpdated(this.chats, this.transcripts, this.made);
     },
@@ -780,6 +785,7 @@ export default {
       :chat-links="chatLinksById"
       :quiet-keys="quietKeys"
       :last-at="lastAt"
+      :last-said="lastSaid"
       :work="work"
       :current="current"
       :loading="loadingChats"

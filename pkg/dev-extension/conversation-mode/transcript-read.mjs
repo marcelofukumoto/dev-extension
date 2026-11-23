@@ -10,6 +10,8 @@
 //   step   the step its to-do list marks in progress, '' when there is none
 //   last   when the chat last moved (ISO): its newest message, either side's - or, for a chat
 //          that has not run yet, when it was made (its sessions/<id> directory); '' when unknown
+//   said   the last message a person sent, `{ text, at }` (up to 1500 characters), or null: what
+//          the chat was last asked, which says where it stands
 // The transcript is the one claude keeps for the repo's working directory, found by the id the
 // pane recorded (/workspace/sessions/<id>.id). Ids are checked before they reach a path.
 export const TRANSCRIPT_READ = `
@@ -48,13 +50,14 @@ for (const id of ids) {
   if (!/^[A-Za-z0-9_.-]+$/.test(id)) continue;
   let uuid = '';
   try { uuid = fs.readFileSync(sessions + id + '.id', 'utf8').trim(); } catch (e) {}
-  if (!/^[0-9a-f-]{36}$/.test(uuid)) { out[id] = { first: '', urls: [], now: null, step: '', last: madeAt(id) }; continue; }
+  if (!/^[0-9a-f-]{36}$/.test(uuid)) { out[id] = { first: '', urls: [], now: null, step: '', last: madeAt(id), said: null }; continue; }
   let lines = [];
   try { lines = fs.readFileSync(home + '/.claude/projects/' + projKey + '/' + uuid + '.jsonl', 'utf8').split('\\n'); } catch (e) {}
   let first = '';
   let now = null;
   let step = '';
   let last = '';
+  let said = null;
   const urls = [];
   for (const line of lines) {
     if (!line) continue;
@@ -80,10 +83,11 @@ for (const id of ids) {
     const text = textOf(content);
     if (!text || /^\\s*</.test(text)) continue;
     if (e.type === 'user' && !first) first = text.slice(0, 600);
+    if (e.type === 'user' && !/^\\s*\\[Request interrupted/.test(text)) said = { text: text.trim().slice(0, 1500), at: e.timestamp || '' };
     for (const u of text.match(URL_RE) || []) { const url = u.replace(TRAILING, ''); if (url) urls.push(url); }
     for (const m of text.matchAll(REF_RE)) urls.push('https://github.com/' + m[1] + '/issues/' + m[2]);
   }
-  out[id] = { first, urls: urls.slice(-200), now, step, last: last || madeAt(id) };
+  out[id] = { first, urls: urls.slice(-200), now, step, last: last || madeAt(id), said };
 }
 process.stdout.write(JSON.stringify(out));
 `;

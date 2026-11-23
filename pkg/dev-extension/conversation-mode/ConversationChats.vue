@@ -56,6 +56,8 @@ export default {
     current:   { type: String, default: '' },
     /** The keys marked "Nothing to do" that still hold (nothing-to-do.mjs): their items go aside. */
     quietKeys: { type: Set, default: () => new Set() },
+    /** chat id -> the last message you sent it ({ text, at }): shown above the chat, so it says where it stands. */
+    lastSaid:  { type: Object, default: () => ({}) },
     /** chat id -> when it last moved, in ms (rail.mjs, lastUpdated): each section, newest first. */
     lastAt:    { type: Object, default: () => ({}) },
     loading:   { type: Boolean, default: false },
@@ -74,6 +76,8 @@ export default {
       lastInItem: {},
       /** Whether the Done group is open; it starts shut, and a search opens it. */
       doneOpen:   false,
+      /** Whether the last message you sent is shown whole rather than in two lines. */
+      saidOpen:   false,
     };
   },
 
@@ -112,6 +116,24 @@ export default {
       return item.role === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
     },
 
+    /** The last message you sent the open chat ({ text, at }), or null. */
+    currentSaid() {
+      const said = this.lastSaid[this.current];
+
+      return said?.text ? said : null;
+    },
+
+    saidWhen() {
+      return this.currentSaid?.at ? ago(this.currentSaid.at) : '';
+    },
+
+    /** Longer than its two lines: it gets More. */
+    saidLong() {
+      const text = this.currentSaid?.text || '';
+
+      return text.length > 180 || text.split('\n').length > 2;
+    },
+
     currentLinks() {
       return this.chatLinks[this.current] || [];
     },
@@ -137,6 +159,7 @@ export default {
         }
         this.closing = '';
         this.linksAll = false;
+        this.saidOpen = false;
       },
     },
 
@@ -479,6 +502,25 @@ export default {
         </button>
       </nav>
 
+      <div
+        v-if="currentSaid"
+        class="chats__said"
+        :class="{ 'chats__said--open': saidOpen }"
+        data-testid="chat-last-said"
+      >
+        <span class="chats__said-who">You{{ currentSaid.at ? ` · ${ saidWhen }` : '' }}</span>
+        <p class="chats__said-text">{{ currentSaid.text }}</p>
+        <button
+          v-if="saidLong"
+          type="button"
+          class="chats__said-more"
+          :aria-expanded="saidOpen ? 'true' : 'false'"
+          @click="saidOpen = !saidOpen"
+        >
+          {{ saidOpen ? 'Less' : 'More' }}
+        </button>
+      </div>
+
       <main class="chats__body">
         <div
           v-if="!loading && !chats.length"
@@ -754,8 +796,59 @@ export default {
     // the tab strip was the one squashed when the body asked for room.
     &__head,
     &__tabs,
-    &__links {
+    &__links,
+    &__said {
       flex: 0 0 auto;
+    }
+
+    // The last message you sent this chat: what it was last asked, so where it stands is a glance.
+    &__said {
+      display:       flex;
+      align-items:   flex-start;
+      gap:           10px;
+      padding:       8px 16px;
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-subtle);
+      font-size:     13px;
+    }
+
+    &__said-who {
+      flex:        0 0 auto;
+      padding-top: 1px;
+      color:       var(--conv-meta);
+      font-size:   12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    &__said-text {
+      flex:               1 1 auto;
+      display:            -webkit-box;
+      min-width:          0;
+      margin:             0;
+      overflow:           hidden;
+      color:              var(--conv-text);
+      line-height:        1.4;
+      white-space:        pre-wrap;
+      overflow-wrap:      anywhere;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    &__said--open &__said-text {
+      display:    block;
+      max-height: 40vh;
+      overflow-y: auto;
+    }
+
+    &__said-more {
+      flex:        0 0 auto;
+      padding:     0;
+      border:      0;
+      background:  none;
+      color:       var(--conv-link);
+      cursor:      pointer;
+      font-size:   12px;
     }
 
     &__tabs {
