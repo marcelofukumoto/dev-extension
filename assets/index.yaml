@@ -12,16 +12,38 @@ entries:
       catalog.cattle.io/ui-component: plugins
       catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 5.0.0'
     apiVersion: v2
-    appVersion: 0.3.72235
-    created: "2026-11-23T12:10:58.218097256Z"
+    appVersion: 0.3.72236
+    created: "2026-11-23T12:18:10.038511757Z"
     description: Workspaces for rancher/dashboard pointed at any Rancher, with reviews,
       fixes, shares and agents
-    digest: 6107ee9b678341090bde41b9fed1a867db0be10153d62a5855e1123a866be648
+    digest: 4422efb73c36ad163aaaf38dca5073539840451a052eb97863f1f27bb9bb0ead
     icon: https://codyrancher.github.io/dev-extension/icon.svg
     name: dev-extension
     type: application
     urls:
-    - assets/dev-extension/dev-extension-0.3.72235.tgz
+    - assets/dev-extension/dev-extension-0.3.72236.tgz
+    version: 0.3.72236
+  - annotations:
+      catalog.cattle.io/certified: rancher
+      catalog.cattle.io/display-name: Dev Extension
+      catalog.cattle.io/namespace: cattle-ui-plugin-system
+      catalog.cattle.io/os: linux
+      catalog.cattle.io/permits-os: linux, windows
+      catalog.cattle.io/rancher-version: '>= 2.10.0'
+      catalog.cattle.io/scope: management
+      catalog.cattle.io/ui-component: plugins
+      catalog.cattle.io/ui-extensions-version: '>= 3.0.0 < 5.0.0'
+    apiVersion: v2
+    appVersion: 0.3.72235
+    created: "2026-11-23T12:11:41.884816198Z"
+    description: Workspaces for rancher/dashboard pointed at any Rancher, with reviews,
+      fixes, shares and agents
+    digest: e233476c4e2191f0df658dc1096203bde2157f51b52a217190d3b9078d7c9ad6
+    icon: https://codyrancher.github.io/dev-extension/icon.svg
+    name: dev-extension
+    type: application
+    urls:
+    - https://github.com/marcelofukumoto/dev-extension/releases/download/dev-extension-0.3.72235/dev-extension-0.3.72235.tgz
     version: 0.3.72235
   - annotations:
       catalog.cattle.io/certified: rancher
@@ -771,4 +793,4 @@ entries:
     urls:
     - assets/dev-extension/dev-extension-0.3.72201.tgz
     version: 0.3.72201
-generated: "2026-11-23T12:10:58.217744166Z"
+generated: "2026-11-23T12:18:10.038140887Z"
