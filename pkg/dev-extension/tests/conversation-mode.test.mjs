@@ -1015,6 +1015,15 @@ test('find work: started is a fixing PR open or merged, any open PR, or a Workin
   assert.equal(both.prs[0].links, true);
 });
 
+test('find work: a PR made inside somebody\'s fork is no start', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+  const inFork = pickupPr('aeltai/rancher', 3, 'OPEN', { repository: { nameWithOwner: 'aeltai/rancher', isFork: true } });
+  const issue = P.shapeIssue(issueNode(13792, { mentions: [[inFork, false]] }));
+
+  assert.deepEqual(issue.prs, []);
+  assert.equal(P.startedBy(issue).started, false);
+});
+
 test('find work: a page keeps open issues only, with the project\'s status and priority', async() => {
   const P = await import('../conversation-mode/pickup.mjs');
   const page = P.shapeProjectItems({

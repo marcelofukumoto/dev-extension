@@ -38,7 +38,7 @@ export function tabUrl(tab) {
   return `https://github.com/issues?q=${ encodeURIComponent(tab.search) }`;
 }
 
-const PR_FIELDS = 'number url state isDraft repository { nameWithOwner } author { login }';
+const PR_FIELDS = 'number url state isDraft repository { nameWithOwner isFork } author { login }';
 
 /** What is asked of each issue: enough for the table, and every pull request that points at it. */
 export const ISSUE_FIELDS = `
@@ -80,11 +80,16 @@ export function searchQuery(search, after = null) {
     nodes { __typename ... on Issue { ${ ISSUE_FIELDS } } } } }`;
 }
 
-/** Every pull request that points at an issue, once each: `links` when it would close it. */
+/**
+ * Every pull request that points at an issue, once each: `links` when it would close it. One made
+ * inside somebody's fork (its repository is a fork) is left out: it is their own experiment, not
+ * work on the issue - rancher/dashboard#13792 was hidden by aeltai/rancher#3, a PR to the fork's own
+ * main. A PR from a fork to the project is the project's repository's, and counts.
+ */
 function prsOf(node) {
   const out = new Map();
   const add = (pr, links) => {
-    if (!pr?.number || !pr.repository) {
+    if (!pr?.number || !pr.repository || pr.repository.isFork) {
       return;
     }
     const key = `${ pr.repository.nameWithOwner }#${ pr.number }`;
