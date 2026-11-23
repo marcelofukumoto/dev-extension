@@ -12,6 +12,7 @@ kubectl -n "$NS" create configmap conversation-api-code \
   --from-file=github.mjs="$HERE/github.mjs" \
   --from-file=ws.mjs="$HERE/ws.mjs" \
   --from-file=projects.mjs="$HERE/../projects.mjs" \
+  --from-file=pickup.mjs="$HERE/../pickup.mjs" \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "$HERE/k8s.yaml"
 kubectl -n "$NS" rollout restart deploy/conversation-api

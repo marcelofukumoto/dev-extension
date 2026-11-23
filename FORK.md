@@ -45,7 +45,9 @@ Edits to upstream files, each marked with a comment naming this file:
 - The Secret `dev-system/conversation-env` (key `.env`), which conv-shell copies into the checkout.
 - **conversation-api** in dev-system (`pkg/dev-extension/conversation-mode/server/`, deployed with
   its `deploy.sh`): asks GitHub every ten minutes for the dashboard and pushes each answer to the
-  pages on a WebSocket; agents read it at `http://conversation-api.dev-system:8080/work`. The page
+  pages on a WebSocket; agents read it at `http://conversation-api.dev-system:8080/work`. It also
+  answers Find work (`/pickup`, conversation-mode/pickup.mjs): the issues to pick up per project
+  view or search, asked when the dialog opens and kept a quarter of an hour. The page
   falls back to asking GitHub itself when it cannot reach it. Its cache is
   `/var/lib/rancher/dev-workspaces/.conversation/cache/work.json` on the node.
 - The ConfigMap `dev-system/conversation-links` (key `links.json`): which chat is about which pull

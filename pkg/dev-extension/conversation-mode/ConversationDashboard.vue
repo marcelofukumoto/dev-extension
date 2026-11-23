@@ -7,6 +7,7 @@
 // chat opens it; every row that has none can start one, named for it and opened with its link.
 import AppIcon from '../components/focus/AppIcon.vue';
 import ReviewerMarks from './ReviewerMarks.vue';
+import PickupDialog from './PickupDialog.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
   CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
@@ -48,7 +49,7 @@ const STATE_LABEL = {
 export default {
   name: 'ConversationDashboard',
 
-  components: { AppIcon, ReviewerMarks },
+  components: { AppIcon, ReviewerMarks, PickupDialog },
 
   emits: ['open-chat', 'start-chat', 'new-chat', 'reload', 'archive', 'view-chats', 'marks'],
 
@@ -83,6 +84,8 @@ export default {
       marking:    '',
       /** The reasons' editor: open or not, and the one being renamed (to what). */
       editingReasons: false,
+      /** Find work (PickupDialog.vue): the issues there are to pick up, in a dialog. */
+      pickupOpen:     false,
       reasonFrom:     '',
       reasonTo:       '',
       markReason: '',
@@ -566,6 +569,18 @@ export default {
       >
         <header class="dash__card-head">
           <h2>Needs your attention</h2>
+          <button
+            type="button"
+            class="dash__btn dash__find-work"
+            title="Issues there are to pick up, per project and search, without the ones somebody started"
+            data-testid="find-work"
+            @click="pickupOpen = true"
+          >
+            <AppIcon
+              name="tasks"
+              :size="12"
+            /> Find work
+          </button>
           <div
             class="dash__chips"
             role="group"
@@ -1171,6 +1186,17 @@ export default {
         </article>
       </div>
     </section>
+
+    <PickupDialog
+      v-if="pickupOpen"
+      :chats="chats"
+      :links="links"
+      :activity="activity"
+      :starting="starting"
+      @close="pickupOpen = false"
+      @open-chat="(id) => { pickupOpen = false; $emit('open-chat', id) }"
+      @start-chat="(subject) => { pickupOpen = false; $emit('start-chat', subject) }"
+    />
   </div>
 </template>
 
@@ -1295,6 +1321,8 @@ export default {
       justify-content: space-between;
       gap:             8px;
       margin-bottom:   8px;
+
+      .dash__find-work { margin-right: auto; }
 
       h2 {
         font-size:   16px;

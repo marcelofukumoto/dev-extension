@@ -99,6 +99,8 @@ spec:
                 path: server/ws.mjs
               - key: projects.mjs
                 path: projects.mjs
+              - key: pickup.mjs
+                path: pickup.mjs
         - name: env
           secret:
             secretName: conversation-env

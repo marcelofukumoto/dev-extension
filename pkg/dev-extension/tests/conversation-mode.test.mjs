@@ -960,3 +960,90 @@ test('Needs your attention goes newest first: a row\'s chat or GitHub, whichever
   assert.equal(out[1].chatUpdated, 0);
   assert.equal(out[1].updated, ms('2026-11-19T09:00:00Z'));
 });
+
+// ── Find work (pickup.mjs) ─────────────────────────────────────────────────────────────────────
+
+test('find work: a tab is a project view or a search, and its GitHub address', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+
+  assert.deepEqual(P.PICKUP_TABS.map((t) => t.id), ['longhorn', 'harvester', 'fleet', 'jira-bugs']);
+  assert.equal(P.tabUrl(P.PICKUP_TABS[0]), 'https://github.com/orgs/rancher/projects/57/views/68');
+  assert.equal(P.tabUrl(P.PICKUP_TABS[3]), 'https://github.com/issues?q=repo%3Arancher%2Fdashboard%20is%3Aissue%20state%3Aopen%20label%3AJIRA%20label%3Akind%2Fbug');
+  // A view's filter goes to GitHub as a string, quotes and all.
+  const q = P.projectItemsQuery({ org: 'rancher', number: 57 }, 'label:area/fleet -status:"Ice Box"', 'Y3Vyc29y');
+
+  assert.ok(q.includes('query: "label:area/fleet -status:\\"Ice Box\\""'), q);
+  assert.ok(q.includes('after: "Y3Vyc29y"'));
+});
+
+const pickupPr = (repo, number, state, extra = {}) => ({
+  number, url: `https://github.com/${ repo }/pull/${ number }`, state, isDraft: false, repository: { nameWithOwner: repo }, author: { login: 'x' }, ...extra
+});
+const issueNode = (number, refs = {}) => ({
+  number,
+  title:      `Issue ${ number }`,
+  url:        `https://github.com/rancher/dashboard/issues/${ number }`,
+  state:      'OPEN',
+  updatedAt:  '2026-11-20T00:00:00Z',
+  repository: { nameWithOwner: 'rancher/dashboard' },
+  milestone:  refs.milestone ? { title: refs.milestone } : null,
+  labels:     { nodes: (refs.labels || []).map((name) => ({ name, color: 'fff' })) },
+  assignees:  { nodes: [] },
+  closedByPullRequestsReferences: { nodes: refs.closing || [] },
+  timelineItems:                  { nodes: (refs.mentions || []).map(([p, willCloseTarget]) => ({ willCloseTarget, source: { __typename: 'PullRequest', ...p } })) },
+});
+
+test('find work: started is a fixing PR open or merged, any open PR, or a Working / Review status', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+  const s = (node, extra) => P.startedBy(P.shapeIssue(node, extra));
+
+  assert.equal(s(issueNode(1)).started, false);
+  assert.equal(s(issueNode(2, { closing: [pickupPr('rancher/dashboard', 10, 'MERGED')] })).started, true);
+  assert.equal(s(issueNode(3, { closing: [pickupPr('rancher/dashboard', 11, 'CLOSED')] })).started, false, 'a closed, unmerged fix is no start');
+  assert.equal(s(issueNode(4, { mentions: [[pickupPr('longhorn/longhorn-ui', 1099, 'OPEN'), false]] })).started, true, 'an open PR that only mentions it');
+  const merged = s(issueNode(5, { mentions: [[pickupPr('rancher/dashboard', 12, 'MERGED'), false]] }));
+
+  assert.equal(merged.started, false, 'a merged PR that only mentions it is not a fix');
+  assert.deepEqual(merged.mentions.map((p) => p.number), [12]);
+  assert.deepEqual(s(issueNode(6), { status: 'Working' }), {
+    started: true, prs: [], status: 'Working', mentions: []
+  });
+  // The same PR as a closing reference and a mention is one PR, and it links.
+  const both = P.shapeIssue(issueNode(7, { closing: [pickupPr('rancher/dashboard', 13, 'OPEN')], mentions: [[pickupPr('rancher/dashboard', 13, 'OPEN'), false]] }));
+
+  assert.equal(both.prs.length, 1);
+  assert.equal(both.prs[0].links, true);
+});
+
+test('find work: a page keeps open issues only, with the project\'s status and priority', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+  const page = P.shapeProjectItems({
+    organization: {
+      projectV2: {
+        items: {
+          totalCount: 3,
+          pageInfo:   { hasNextPage: true, endCursor: 'c2' },
+          nodes:      [
+            { status: { name: 'Backlog' }, projectPriority: { name: 'priority/1' }, content: { __typename: 'Issue', ...issueNode(20, { milestone: 'v2.17.0' }) } },
+            { status: { name: 'Backlog' }, content: { __typename: 'PullRequest', number: 21 } },
+            { status: null, content: { __typename: 'Issue', ...issueNode(22), state: 'CLOSED' } },
+          ],
+        }
+      }
+    }
+  });
+
+  assert.deepEqual(page.issues.map((i) => [i.key, i.status, i.priority, i.milestone]), [['rancher/dashboard#20', 'Backlog', 'priority/1', 'v2.17.0']]);
+  assert.equal(page.next, 'c2');
+  // Without a project priority, a priority label does.
+  assert.equal(P.shapeIssue(issueNode(23, { labels: ['kind/bug', 'priority/0'] })).priority, 'priority/0');
+});
+
+test('find work: milestones in version order, no milestone last', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+  const issues = ['v2.18.0', '', 'v2.17.0', 'v1.11.0', 'v2.17.0', 'Planning'].map((milestone) => ({ milestone }));
+
+  assert.deepEqual(P.milestonesOf(issues), [
+    { title: 'Planning', count: 1 }, { title: 'v1.11.0', count: 1 }, { title: 'v2.17.0', count: 2 }, { title: 'v2.18.0', count: 1 }, { title: '', count: 1 },
+  ]);
+});

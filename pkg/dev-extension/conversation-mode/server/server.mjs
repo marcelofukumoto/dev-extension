@@ -9,6 +9,9 @@
 // The answer is the shape github.ts's myWork() answers in, merged across products (projects.mjs),
 // so the dashboard draws it without knowing who asked.
 //
+// And "Find work" (../pickup.mjs): the issues to pick up, per project view or search - asked when a
+// page opens it (GET /pickup), kept for PICKUP_EVERY_MS, again on request at most once a minute.
+//
 // GitHub's token is the conversation-env Secret's GH_TOKEN_DEV_EXTENSION, mounted as a file and
 // read on every refresh, so a rotated token is picked up without a restart. The pod has no
 // Kubernetes API access at all (automountServiceAccountToken: false); see k8s.yaml.
@@ -24,6 +27,9 @@ import {
 import {
   acceptKey, frame, textFrame, readFrames
 } from './ws.mjs';
+import {
+  PICKUP_TABS, PICKUP_PAGES, viewQuery, projectItemsQuery, searchQuery, shapeProjectItems, shapeSearch, tabUrl
+} from '../pickup.mjs';
 
 const PORT = Number(process.env.PORT || 8080);
 const ENV_FILE = process.env.ENV_FILE || '/etc/conversation/.env';
@@ -33,6 +39,7 @@ const MIN_REFRESH_MS = Number(process.env.MIN_REFRESH_MS || 60 * 1000);
 const HEARTBEAT_MS = 25000;
 const SECTIONS = ['mine', 'reviewing', 'issues'];
 const CONCURRENCY = 2;
+const PICKUP_EVERY_MS = Number(process.env.PICKUP_EVERY_MS || 15 * 60 * 1000);
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -45,6 +52,9 @@ const lastProjects = {};
 /** The last good answer of each product and section, so one that fails keeps what it had. */
 let lastAnswers = [];
 const sockets = new Set();
+/** Find work: every tab's issues, and when they were asked for. */
+const pickup = { at: 0, tabs: [], errors: [] };
+let pickupRun = null;
 
 function token() {
   let text = '';
@@ -196,6 +206,83 @@ async function refresh(reason) {
   }
 }
 
+/** Ask GitHub, and once more after a moment when the answer is worth asking again for (askGithub). */
+async function askOnceMore(tok, query) {
+  try {
+    return await askGithub(tok, query);
+  } catch (e) {
+    if (!e.retriable) {
+      throw e;
+    }
+    await sleep(1500);
+
+    return askGithub(tok, query);
+  }
+}
+
+/** One tab of Find work: a project view's items under the view's own filter, or a search; PICKUP_PAGES pages at most. */
+async function fetchTab(tok, tab) {
+  const issues = [];
+  let filter = tab.search || '';
+  let next = null;
+  let total = 0;
+
+  if (tab.project) {
+    const view = (await askOnceMore(tok, viewQuery(tab.project)))?.organization?.projectV2?.view;
+
+    if (!view) {
+      throw new Error(`view ${ tab.project.view } of project ${ tab.project.number } was not found`);
+    }
+    filter = view.filter || '';
+  }
+  for (let page = 0; page < PICKUP_PAGES; page++) {
+    const got = tab.project ? shapeProjectItems(await askOnceMore(tok, projectItemsQuery(tab.project, filter, next))) : shapeSearch(await askOnceMore(tok, searchQuery(tab.search, next)));
+
+    issues.push(...got.issues);
+    total = got.total;
+    next = got.next;
+    if (!next) {
+      break;
+    }
+  }
+
+  return {
+    id: tab.id, name: tab.name, url: tabUrl(tab), filter, issues, total, truncated: !!next, error: ''
+  };
+}
+
+/** Ask for every tab at once; one already being asked is the same answer. A tab that fails keeps what it had. */
+function refreshPickup() {
+  if (pickupRun) {
+    return pickupRun;
+  }
+  pickupRun = (async() => {
+    const tok = token();
+
+    if (!tok) {
+      pickup.errors = ['No GitHub token: GH_TOKEN_DEV_EXTENSION is not in the conversation-env Secret.'];
+
+      return;
+    }
+    const results = await Promise.all(PICKUP_TABS.map((tab) => fetchTab(tok, tab).then((value) => ({ value }), (error) => ({ error }))));
+    const before = Object.fromEntries(pickup.tabs.map((t) => [t.id, t]));
+
+    pickup.tabs = PICKUP_TABS.map((tab, i) => results[i].value || {
+      ...(before[tab.id] || {
+        id: tab.id, name: tab.name, url: tabUrl(tab), filter: tab.search || '', issues: [], total: 0, truncated: false
+      }),
+      error: results[i].error.message,
+    });
+    pickup.errors = results.map((r, i) => (r.error ? `${ PICKUP_TABS[i].name }: ${ r.error.message }` : '')).filter(Boolean);
+    pickup.at = Date.now();
+    log(`find work: ${ pickup.tabs.map((t) => `${ t.id } ${ t.issues.length }`).join(', ') }${ pickup.errors.length ? `; errors: ${ pickup.errors.join(' | ') }` : '' }`);
+  })().finally(() => {
+    pickupRun = null;
+  });
+
+  return pickupRun;
+}
+
 function json(res, code, body) {
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
@@ -211,6 +298,17 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/work' && req.method === 'GET') {
     return json(res, 200, snapshot());
+  }
+  if (url.pathname === '/pickup' && req.method === 'GET') {
+    const age = Date.now() - pickup.at;
+
+    if (!pickup.at || age > PICKUP_EVERY_MS || (url.searchParams.get('refresh') === '1' && age > MIN_REFRESH_MS)) {
+      refreshPickup().then(() => json(res, 200, { type: 'pickup', ...pickup }), (e) => json(res, 500, { error: String(e?.message || e) }));
+
+      return;
+    }
+
+    return json(res, 200, { type: 'pickup', ...pickup });
   }
   if (url.pathname === '/refresh' && req.method === 'POST') {
     const wait = MIN_REFRESH_MS - (Date.now() - state.at);
