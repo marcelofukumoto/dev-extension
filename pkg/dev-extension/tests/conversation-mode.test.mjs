@@ -1202,3 +1202,67 @@ test('a chat started on a PR you review opens with the whole review, naming the 
   assert.ok(REVIEW_START.startsWith('We should review this PR using process B.\nLet\'s work on it.\n'));
   assert.equal(REVIEW_START.split('\n').length, 8);
 });
+
+test('fixedIssues: the issues a description says it fixes, not mentions or template hints', async() => {
+  const { fixedIssues } = await import('../conversation-mode/projects.mjs');
+  const body = '<!-- Fixes #1 -->\n## Summary\nFixes #19962\nfixes: rancher/shell#5\nCloses https://github.com/rancher/ui/issues/7 and see #9\nResolved #19962\nFixes #<!-- the issue -->';
+
+  assert.deepEqual(fixedIssues(body, 'rancher/dashboard'), ['rancher/dashboard#19962', 'rancher/shell#5', 'rancher/ui#7']);
+  assert.deepEqual(fixedIssues('', 'rancher/dashboard'), []);
+  assert.deepEqual(fixedIssues(undefined, 'r/x'), []);
+  assert.deepEqual(fixedIssues('Prefix #3 and suffixes #4', 'r/x'), []);
+});
+
+test('a pull request of yours and the issue it fixes are one: its row opens the issue chat', async() => {
+  const { fixLinks } = await import('../conversation-mode/projects.mjs');
+  const { activityBySubject, attentionByLastUpdated } = await import('../conversation-mode/rail.mjs');
+  const pr = {
+    repo: 'rancher/dashboard', number: 19968, title: 'List secrets', url: 'u', updatedAt: '2026-11-25T10:00:00Z',
+    checks: { total: 4, failing: 1, pending: 0, failingNames: ['Description'] }, reviewDecision: '', fixes: ['rancher/dashboard#19962'],
+  };
+  const issueChat = { id: 'p-lte-duty-50', title: 'dashboard#19962 List secrets' };
+  const links = { 'p-lte-duty-50': { subject: { repo: 'rancher/dashboard', number: 19962, kind: 'issue', role: 'developer' } } };
+  const work = { mine: [pr], reviewing: [], issues: [] };
+
+  assert.deepEqual(fixLinks(work), { 'rancher/dashboard#19968': ['rancher/dashboard#19962'], 'rancher/dashboard#19962': ['rancher/dashboard#19968'] });
+  // A page that asked GitHub itself has the description, not `fixes`.
+  assert.deepEqual(fixLinks({ mine: [{ ...pr, fixes: undefined, body: 'Fixes #19962' }] }), fixLinks(work));
+
+  const rows = attentionRows(work, [issueChat], {}, links);
+
+  assert.equal(rows[0].kind, 'blocked');
+  assert.equal(rows[0].chatId, 'p-lte-duty-50');
+  assert.equal(chatsBySubject([issueChat], links, work)['rancher/dashboard#19968'], 'p-lte-duty-50');
+  assert.equal(chatsBySubject([issueChat], links)['rancher/dashboard#19968'], undefined);
+  assert.equal(activityBySubject([issueChat], links, { 'p-lte-duty-50': 'working' }, work)['rancher/dashboard#19968'], 'working');
+  assert.equal(attentionByLastUpdated(rows, [issueChat], links, { 'p-lte-duty-50': Date.parse('2026-11-25T12:00:00Z') })[0].chatUpdated, Date.parse('2026-11-25T12:00:00Z'));
+
+  // The other way round: a chat on the pull request is the issue's.
+  const prChat = { id: 'p-lte-duty-51', title: 'dashboard#19968' };
+  const prLinks = { 'p-lte-duty-51': { subject: { repo: 'rancher/dashboard', number: 19968, kind: 'pr', role: 'developer' } } };
+
+  assert.equal(chatsBySubject([prChat], prLinks, work)['rancher/dashboard#19962'], 'p-lte-duty-51');
+  // Its own chat wins.
+  assert.equal(chatsBySubject([issueChat, prChat], { ...links, ...prLinks }, work)['rancher/dashboard#19968'], 'p-lte-duty-51');
+
+  // A pull request you review is a job of its own.
+  const reviewing = { mine: [], reviewing: [{ ...pr, author: 'x', reviewRequested: true }] };
+
+  assert.equal(attentionRows(reviewing, [issueChat], {}, links)[0].chatId, '');
+});
+
+test('the rail: an issue a pull request of yours fixes stands where the pull request does', async() => {
+  const { railSections } = await import('../conversation-mode/rail.mjs');
+  const pr = {
+    repo: 'rancher/dashboard', number: 19968, checks: { total: 5, failing: 2, pending: 0 }, reviewDecision: '', fixes: ['rancher/dashboard#19962'],
+  };
+  const issue = { repo: 'rancher/dashboard', number: 19962, title: 'List secrets', milestone: 'v2.17.0' };
+  const chats = [{ id: 'c', title: 't' }];
+  const links = { c: { subject: { repo: 'rancher/dashboard', number: 19962, kind: 'issue', role: 'developer' } } };
+  const item = (work) => railSections(chats, links, { login: 'me', ...work }, {}).find((s) => s.items.length).items[0];
+
+  assert.deepEqual(item({ mine: [pr], issues: [issue] }).status, { text: 'PR dashboard#19968 · 2 checks failing', tone: 'warn', stage: 3 });
+  assert.deepEqual(item({ mine: [], issues: [issue] }).status, { text: 'Assigned · v2.17.0', tone: '', stage: 1 });
+  // Closed (not yours any more): over, whatever the pull request.
+  assert.equal(item({ mine: [pr], issues: [] }).section, 'done');
+});

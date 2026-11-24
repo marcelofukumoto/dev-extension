@@ -210,7 +210,7 @@ export default {
     },
 
     chatFor() {
-      return chatsBySubject(this.chats, this.links);
+      return chatsBySubject(this.chats, this.links, this.work);
     },
 
     tiles() {
@@ -232,7 +232,7 @@ export default {
      */
     /** `repo#n` -> the most urgent state of its chats: what a row of it is coloured by. */
     subjectActivity() {
-      return activityBySubject(this.chats, this.links, this.activity);
+      return activityBySubject(this.chats, this.links, this.activity, this.work);
     },
 
     /** The chats not archived (those are under Done in the rail), the one that moved last first. */
@@ -318,6 +318,16 @@ export default {
       return s ? shortRef(s.repo, s.number) : '';
     },
 
+
+    /** What the row's chat buttons do - and, when its chat is the issue it fixes', which issue. */
+    chatTip(row) {
+      if (!row.chatId) {
+        return 'Start a chat about it';
+      }
+      const s = this.links[row.chatId]?.subject;
+
+      return s && subjectKey(s.repo, s.number) !== row.key ? `Open the chat on ${ shortRef(s.repo, s.number) }, the issue this fixes` : 'Open its chat';
+    },
 
     rowChat(row) {
       if (row.chatId) {
@@ -756,7 +766,7 @@ export default {
               <button
                 type="button"
                 class="dash__row-title"
-                :title="row.chatId ? 'Open its chat' : 'Start a chat about it'"
+                :title="chatTip(row)"
                 :disabled="!row.chatId && (!row.subject || isStarting(row.subject))"
                 data-testid="attention-title"
                 @click="rowChat(row)"
@@ -895,6 +905,8 @@ export default {
                 type="button"
                 class="dash__btn"
                 :disabled="!!row.subject && isStarting(row.subject)"
+                :title="chatTip(row)"
+                data-testid="attention-chat"
                 @click="rowChat(row)"
               >
                 {{ row.chatId ? 'Open chat' : (row.subject && isStarting(row.subject) ? 'Starting…' : 'Start chat') }}
@@ -1210,6 +1222,7 @@ export default {
       :activity="activity"
       :starting="starting"
       :me="work.login"
+      :work="work"
       @close="pickupOpen = false"
       @open-chat="(id) => { pickupOpen = false; $emit('open-chat', id) }"
       @start-chat="(subject, opts) => { pickupOpen = false; $emit('start-chat', subject, opts) }"

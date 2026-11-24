@@ -344,7 +344,8 @@ const RANK = {
  */
 export function attentionRows(work, chats = [], activity = {}, links = {}) {
   const rows = [];
-  const chatFor = chatsBySubject(chats, links);
+  // Yours and the issue it fixes are one piece of work: the issue's chat is the pull request's.
+  const chatFor = chatsBySubject(chats, links, work);
 
   for (const chat of chats) {
     // An archived chat is put away: it asks nothing of anyone here, whatever its agent is doing.
@@ -396,8 +397,12 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
   return rows.sort((a, b) => (RANK[a.kind] - RANK[b.kind]) || (!!a.draft - !!b.draft) || ((Date.parse(b.at) || 0) - (Date.parse(a.at) || 0)));
 }
 
-/** subject key -> the chat working on it, for the chats that still exist. */
-export function chatsBySubject(chats = [], links = {}) {
+/**
+ * subject key -> the chat working on it, for the chats that still exist. With `work`, a pull
+ * request of yours and the issue it fixes are one piece of work (fixLinks): one with no chat of
+ * its own has the other's.
+ */
+export function chatsBySubject(chats = [], links = {}, work = null) {
   const out = {};
 
   for (const chat of chats) {
@@ -408,7 +413,75 @@ export function chatsBySubject(chats = [], links = {}) {
     }
   }
 
+  return work ? viaFixes(out, work) : out;
+}
+
+/**
+ * GitHub's closing keywords (close, fix, resolve and their tenses), an optional colon, then
+ * `#n`, `owner/repo#n` or the issue's URL - what makes GitHub close the issue on merge.
+ */
+const CLOSING = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)(?:\s*:\s*|\s+)(?:https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/|([\w.-]+\/[\w.-]+)?#)(\d+)\b/gi;
+
+/**
+ * The issues a pull request's description says it fixes ("Fixes #19962"), as subject keys; `#n`
+ * alone is in the pull request's own repository. A plain mention is not one, and neither is
+ * anything inside an HTML comment (a template's hints).
+ */
+export function fixedIssues(body, repo) {
+  const text = String(body || '').replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  const out = [];
+
+  for (const m of text.matchAll(CLOSING)) {
+    const key = subjectKey(m[1] || m[2] || repo, Number(m[3]));
+
+    if (!out.includes(key)) {
+      out.push(key);
+    }
+  }
+
   return out;
+}
+
+/**
+ * Pull requests of yours and the issues they fix, `key -> [keys]` both ways: one piece of work,
+ * so a chat started on the issue (Find work) is the pull request's chat too, and the other way
+ * round. The server answers `fixes` (github.mjs, shapePr); a page that asked GitHub itself reads
+ * the description. Only yours: a pull request you review is a job of its own, chat and all.
+ */
+export function fixLinks(work = {}) {
+  const out = {};
+  const link = (a, b) => {
+    out[a] ||= [];
+    if (!out[a].includes(b)) {
+      out[a].push(b);
+    }
+  };
+
+  for (const pr of work.mine || []) {
+    const key = subjectKey(pr.repo, pr.number);
+
+    for (const issue of pr.fixes || fixedIssues(pr.body, pr.repo)) {
+      link(key, issue);
+      link(issue, key);
+    }
+  }
+
+  return out;
+}
+
+/** `map` (subject key -> something) with each subject that has nothing given what its fix partner has. */
+export function viaFixes(map, work) {
+  const own = { ...map };
+
+  for (const [key, others] of Object.entries(fixLinks(work))) {
+    const other = own[key] === undefined ? others.find((k) => own[k] !== undefined) : undefined;
+
+    if (other !== undefined) {
+      map[key] = own[other];
+    }
+  }
+
+  return map;
 }
 
 /** "5m ago", "3h ago", "2d ago" - '' for no date. */

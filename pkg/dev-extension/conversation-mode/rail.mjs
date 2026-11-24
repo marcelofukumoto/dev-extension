@@ -8,7 +8,7 @@
 // Plain functions over the chats, their links (links.ts) and GitHub as myWork() answers it, so the
 // grouping is tested without a page.
 import {
-  subjectKey, shortRef, checksState, reviewState, pushedSinceReview, changesAddressed, isArchived
+  subjectKey, shortRef, checksState, reviewState, pushedSinceReview, changesAddressed, isArchived, viaFixes, fixLinks
 } from './projects.mjs';
 
 export { isArchived };
@@ -31,8 +31,10 @@ const URGENCY = {
 /**
  * The state of the chats about each issue or pull request, `repo#n` -> the most urgent of them
  * (waiting for you, then working, then idle, done, not running): what a row of it is coloured by.
+ * With `work`, a pull request of yours with no chat of its own takes the state of the issue it
+ * fixes, and the other way round (projects.mjs, fixLinks).
  */
-export function activityBySubject(chats = [], links = {}, activity = {}) {
+export function activityBySubject(chats = [], links = {}, activity = {}, work = null) {
   const out = {};
 
   for (const chat of chats) {
@@ -48,7 +50,7 @@ export function activityBySubject(chats = [], links = {}, activity = {}) {
     }
   }
 
-  return out;
+  return work ? viaFixes(out, work) : out;
 }
 
 /** Index of a GitHub answer by `repo#n`, with where each one came from. */
@@ -126,6 +128,25 @@ export function statusOf(section, subject, found, hasChats = true) {
   return it.draft ? { ...reviewing, text: `Draft · ${ reviewing.text }` } : reviewing;
 }
 
+/**
+ * An issue of yours that a pull request of yours fixes (fixLinks) stands where that pull request
+ * does - "PR dashboard#19968 · 2 checks failing", on its steps - the two are one piece of work.
+ * Null for anything else, or once the issue is no longer open and yours (it is over).
+ */
+function issueStatus(item, found, fixes, index) {
+  if (found?.kind !== 'issue') {
+    return null;
+  }
+  const pr = (fixes[item.key] || []).map((k) => index[k]).find((f) => f?.kind === 'pr' && f.role === 'developer');
+
+  if (!pr) {
+    return null;
+  }
+  const status = statusOf('developer', { kind: 'pr' }, pr);
+
+  return { ...status, text: `PR ${ shortRef(pr.item.repo, pr.item.number) } · ${ status.text }` };
+}
+
 /** A pull request you review, where it stands (statusOf's REVIEWER half, before "Draft"). */
 function reviewerStatus(it) {
   if (it.maintained) {
@@ -179,7 +200,8 @@ export function attentionByLastUpdated(rows = [], chats = [], links = {}, lastAt
 
   return rows
     .map((row, i) => {
-      const chat = row.kind === 'question' ? (lastAt[row.chatId] || 0) : (bySubject[row.key] || 0);
+      // A pull request whose chat is its issue's (fixLinks) moves when that chat does.
+      const chat = row.kind === 'question' ? (lastAt[row.chatId] || 0) : (bySubject[row.key] || lastAt[row.chatId] || 0);
 
       return {
         row: { ...row, updated: Math.max(chat, Date.parse(row.at || '') || 0), chatUpdated: chat }, i
@@ -208,6 +230,7 @@ export function byLastUpdated(chats = [], lastAt = {}) {
  */
 export function railSections(chats = [], links = {}, work = {}, activity = {}, quiet = new Set(), lastAt = {}) {
   const index = indexWork(work);
+  const fixes = fixLinks(work);
   // Before GitHub has answered once, nothing is "over": every subject would look closed.
   const loaded = !!work.login;
   const items = new Map();
@@ -247,7 +270,7 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}, q
       section: finished ? 'done' : (quiet.has(item.key) ? 'quiet' : item.section),
       role:    item.section,
       activity: Object.keys(URGENCY).find((k) => URGENCY[k] === urgency) || 'none',
-      status:   archived ? { text: 'Archived', tone: '', stage: statusOf(item.section, item.subject, found).stage } : statusOf(item.section, item.subject, found, item.chatIds.length > 0),
+      status:   archived ? { text: 'Archived', tone: '', stage: statusOf(item.section, item.subject, found).stage } : issueStatus(item, found, fixes, index) || statusOf(item.section, item.subject, found, item.chatIds.length > 0),
       updated:  Date.parse(found?.item?.updatedAt || '') || 0,
       // The times you reviewed it (github.mjs, myRounds), for a pull request you review.
       rounds:   found?.role === 'reviewer' ? found.item.rounds : undefined,

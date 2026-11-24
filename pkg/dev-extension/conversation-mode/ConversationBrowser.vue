@@ -60,7 +60,7 @@ export default {
   computed: {
     /** `repo#n` -> the most urgent state of its chats (rail.mjs). */
     subjectActivity() {
-      return activityBySubject(this.chats, this.links, this.activity);
+      return activityBySubject(this.chats, this.links, this.activity, this.work);
     },
 
     TABS:     () => TABS,
@@ -83,7 +83,7 @@ export default {
     },
 
     chatFor() {
-      return chatsBySubject(this.chats, this.links);
+      return chatsBySubject(this.chats, this.links, this.work);
     },
 
     /** The repositories and milestones there are in this tab, for their filters. */

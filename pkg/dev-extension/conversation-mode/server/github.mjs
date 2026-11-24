@@ -5,6 +5,8 @@
 // does not care which of the two asked. One query per product and section, as the page learned to:
 // GitHub gives a GraphQL query ten seconds, and all of a product's searches in one did not fit.
 
+import { fixedIssues } from '../projects.mjs';
+
 const FAILED_RUN = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']);
 const FAILED_STATUS = new Set(['FAILURE', 'ERROR']);
 
@@ -186,6 +188,9 @@ export function shapePr(node, login, reviewRequested = false) {
     // Only here, not in github.ts's answer: a page that asked GitHub itself shows no count.
     rounds:    myRounds(node, login),
     unchecked: uncheckedBoxes(node.body),
+    // The issues its description says it fixes ("Fixes #19962"): yours and its issue are one
+    // piece of work on the dashboard (projects.mjs, fixLinks).
+    fixes:     fixedIssues(node.body, repo),
     // What stands between it and a merge, as GitHub sees it: CLEAN, BLOCKED (a branch rule), BEHIND,
     // DIRTY (conflicts), UNSTABLE (a non-required check fails), UNKNOWN (not worked out yet).
     mergeable:  node.mergeable || '',

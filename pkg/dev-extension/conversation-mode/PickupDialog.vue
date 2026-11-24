@@ -39,6 +39,8 @@ export default {
     starting: { type: String, default: '' },
     /** Your login: a pull request of yours says "yours". */
     me:       { type: String, default: '' },
+    /** Your work (mergeWork): an issue a pull request of yours fixes has that pull request's chat. */
+    work:     { type: Object, default: null },
   },
 
   data() {
@@ -139,11 +141,11 @@ export default {
     },
 
     chatFor() {
-      return chatsBySubject(this.chats, this.links);
+      return chatsBySubject(this.chats, this.links, this.work);
     },
 
     subjectActivity() {
-      return activityBySubject(this.chats, this.links, this.activity);
+      return activityBySubject(this.chats, this.links, this.activity, this.work);
     },
 
     askedAt() {
