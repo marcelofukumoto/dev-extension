@@ -177,6 +177,24 @@ ordinal_taken() {
   return 1
 }
 
+# What an earlier conversation of the same name left behind, cleared when `new` hands the name out
+# again. (This fork: FORK.md.) Only the directory says a name is taken, so a closed conversation's
+# number comes back - and with it whatever outlived the close: a pane still running its claude, the
+# `.id` that makes the next pane `--resume` the old transcript instead of starting fresh, its state
+# and events. A new conversation started on top of those either resumed the old one or had a pane
+# running before its opening prompt was queued, and claude-session.sh only reads the queue when the
+# pane starts: the prompt was never said (mf-dev, chat 45, 2026-11-24). The directory did not exist
+# a moment ago, so none of this belongs to a live conversation.
+clear_leftovers() {
+  if tmux has-session -t "mc-$1" 2>/dev/null; then
+    tmux kill-session -t "mc-$1" 2>/dev/null || true
+    # Its claude's SessionEnd hook writes as it exits; let that land before clearing.
+    sleep 2
+  fi
+  rm -f "$SESSIONS/$1.id" "$SESSIONS/$1.state.json" "$SESSIONS/$1.events.jsonl" "$SESSIONS/$1.resting" \
+    "$(dirname "$SESSIONS")/.panes/$1" "$(dirname "$SESSIONS")/.queue/$1"
+}
+
 # What a person called this conversation, or the ordinal it was given.
 #
 # The name lives in the conversation's own directory rather than in the browser, for the same
@@ -460,6 +478,7 @@ EOF
         id="$BASE$SUFFIX-$n"
 
         if mkdir "$SESSIONS/$id" 2>/dev/null; then
+          clear_leftovers "$id"
           printf '%s\n' "$id"
           exit 0
         fi

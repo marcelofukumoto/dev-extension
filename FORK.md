@@ -40,6 +40,12 @@ Edits to upstream files, each marked with a comment naming this file:
   the transcript's background launches with no notice yet, in the new `dev-api/background-work.mjs`),
   and the same rule in `chat-state.mjs` (`activityBucket`) and `agent.ts`. Regenerate with
   `node scripts/gen-seed.mjs && node scripts/gen-dev-api.mjs`. **Worth offering to Cody** too.
+- `pkg/dev-extension/seed/agent/sessions.sh` `new` clears what an earlier conversation of the
+  same name left behind (`clear_leftovers`: its tmux session, `.id`, state, events, `.resting`,
+  pane record, queued prompt). Only the directory says a name is taken, so a closed conversation's
+  number is handed out again with whatever outlived the close: the next pane `--resume`d the old
+  transcript, or was already running before its opening prompt was queued and never read it.
+  **Upstream bug, worth offering to Cody.** Regenerate with `node scripts/gen-seed.mjs`.
 
 ## What Conversation mode relies on, outside this repo
 

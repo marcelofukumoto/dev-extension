@@ -14,6 +14,7 @@ import AppIcon from '../components/focus/AppIcon.vue';
 import ConversationChats from './ConversationChats.vue';
 import ConversationDashboard from './ConversationDashboard.vue';
 import ConversationBrowser from './ConversationBrowser.vue';
+import { ensureOpeningSaid } from './opening';
 import {
   listConversations, startConversation, renameConversation, endConversation, conversationStates,
   conversationSnapshot, statesFromSnapshot, sendToPane
@@ -568,8 +569,9 @@ export default {
           return s && subjectKey(s.repo, s.number) === subjectKey(subject.repo, subject.number);
         }).length : 0;
         const title = !subject ? nextChatTitle(this.chats.map((c) => c.title)) : quiet && others ? `${ shortRef(subject.repo, subject.number) } chat ${ others + 1 }` : chatTitleFor(subject);
-        const first = opening === 'pickup' ? pickupMessage(subject) : openingMessage(subject);
-        const made = await startConversation(CONVERSATION_WORKSPACE, title, subject && !quiet ? first : '');
+        // Nothing for a chat about nothing, or another one on the same subject.
+        const first = !subject || quiet ? '' : (opening === 'pickup' ? pickupMessage(subject) : openingMessage(subject));
+        const made = await startConversation(CONVERSATION_WORKSPACE, title, first);
 
         this.chats = [...this.chats, { id: made.id, title: made.title || title, cli: '' }];
         this.made = { ...this.made, [made.id]: Date.now() };
@@ -583,11 +585,26 @@ export default {
           });
         }
         this.go('chat', made.id);
+        if (first) {
+          this.sayOpening(made.id, first);
+        }
       } catch (e) {
         this.error = `A new chat could not be started: ${ e?.message || e }`;
       } finally {
         this.creating = false;
         this.starting = '';
+      }
+    },
+
+    /**
+     * A new chat's first message, typed in if its pane started without reading the queue
+     * (opening.ts). In the background: the chat is already open and usable while this looks.
+     */
+    async sayOpening(id, text) {
+      try {
+        await ensureOpeningSaid(id, text);
+      } catch (e) {
+        this.error = `The chat's first message may not have reached it - check the chat and send it again if not: ${ e?.message || e }`;
       }
     },
 
