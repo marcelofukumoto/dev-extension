@@ -25,7 +25,7 @@ import {
 import { CONVERSATION_ROUTE } from './routes';
 import { CONVERSATION_WORKSPACE, nextChatTitle } from './config.mjs';
 import {
-  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage, attentionRows
+  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage, pickupMessage, attentionRows
 } from './projects.mjs';
 import {
   extractUrls, githubRef, titleFromMessage, isDefaultTitle, chatLinks
@@ -548,8 +548,11 @@ export default {
      * A new chat, optionally about a subject: named for it, opened with its link as the first
      * message (queued, and read by claude when the pane starts - which is the moment the chats
      * view shows it), and recorded in the links so the dashboard finds it again.
+     *
+     * `quiet`: nothing queued (another chat on the same subject). `opening: 'pickup'`: Find work's
+     * first message (pickupMessage) instead of the usual where-it-stands one.
      */
-    async createChat(subject = null, quiet = false) {
+    async createChat(subject = null, { quiet = false, opening = '' } = {}) {
       if (this.creating) {
         return;
       }
@@ -565,7 +568,8 @@ export default {
           return s && subjectKey(s.repo, s.number) === subjectKey(subject.repo, subject.number);
         }).length : 0;
         const title = !subject ? nextChatTitle(this.chats.map((c) => c.title)) : quiet && others ? `${ shortRef(subject.repo, subject.number) } chat ${ others + 1 }` : chatTitleFor(subject);
-        const made = await startConversation(CONVERSATION_WORKSPACE, title, subject && !quiet ? openingMessage(subject) : '');
+        const first = opening === 'pickup' ? pickupMessage(subject) : openingMessage(subject);
+        const made = await startConversation(CONVERSATION_WORKSPACE, title, subject && !quiet ? first : '');
 
         this.chats = [...this.chats, { id: made.id, title: made.title || title, cli: '' }];
         this.made = { ...this.made, [made.id]: Date.now() };
@@ -823,7 +827,7 @@ export default {
       :loading="loadingChats"
       :creating="creating"
       @select="(id) => go('chat', id, true)"
-      @create="(p) => createChat(p?.subject || null, !!p?.quiet)"
+      @create="(p) => createChat(p?.subject || null, { quiet: !!p?.quiet })"
       @rename="renameChat"
       @close="closeChat"
       @archive="archiveChats"

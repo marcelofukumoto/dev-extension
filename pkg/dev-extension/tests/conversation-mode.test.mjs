@@ -1161,3 +1161,16 @@ test('review rows carry the count; asked again reads red on the rail', async() =
 
   assert.deepEqual(item.rounds, rounds);
 });
+
+test('a chat started from Find work opens with the doable-or-not check, naming its issue', async() => {
+  const { pickupMessage, PICKUP_CHECK } = await import('../conversation-mode/projects.mjs');
+  const s = { repo: 'rancher/dashboard', number: 123, kind: 'issue', url: 'https://github.com/rancher/dashboard/issues/123', title: 'A thing' };
+  const m = pickupMessage(s);
+
+  assert.ok(m.startsWith('This chat is about the issue https://github.com/rancher/dashboard/issues/123 ("A thing").\n\n'));
+  assert.ok(m.endsWith(PICKUP_CHECK));
+  assert.ok(PICKUP_CHECK.startsWith('We should check this issue.\n'));
+  assert.ok(PICKUP_CHECK.includes('- Is blocked by backend? We should avoid workarounds when checking on this.'));
+  assert.ok(PICKUP_CHECK.endsWith('After this analysis, we should decide if we are going to do or not.'));
+  assert.equal(PICKUP_CHECK.split('\n').length, 9);
+});

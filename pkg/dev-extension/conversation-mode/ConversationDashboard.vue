@@ -1212,7 +1212,7 @@ export default {
       :me="work.login"
       @close="pickupOpen = false"
       @open-chat="(id) => { pickupOpen = false; $emit('open-chat', id) }"
-      @start-chat="(subject) => { pickupOpen = false; $emit('start-chat', subject) }"
+      @start-chat="(subject, opts) => { pickupOpen = false; $emit('start-chat', subject, opts) }"
     />
   </div>
 </template>

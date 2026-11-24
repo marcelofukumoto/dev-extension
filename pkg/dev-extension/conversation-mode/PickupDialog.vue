@@ -204,7 +204,8 @@ export default {
       if (id) {
         this.$emit('open-chat', id);
       } else {
-        this.$emit('start-chat', { ...subjectOf(issue, 'issue'), role: 'developer' });
+        // Opened with the doable-or-not check (projects.mjs, pickupMessage), not the where-it-stands one.
+        this.$emit('start-chat', { ...subjectOf(issue, 'issue'), role: 'developer' }, { opening: 'pickup' });
       }
     },
 

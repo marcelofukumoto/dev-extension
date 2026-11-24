@@ -63,6 +63,25 @@ export function openingMessage(subject) {
   return `This chat is about the ${ what } ${ subject.url } ("${ subject.title }"). Read it, its comments and its latest activity, and tell me where it stands and what is waiting on me.`;
 }
 
+/**
+ * What a chat started from Find work asks first: whether the issue is one to take at all, before
+ * any work on it. Marcelo's wording (2026-11-24), kept as he wrote it.
+ */
+export const PICKUP_CHECK = `We should check this issue.
+We want to see if it is doable or if we require more information.
+Required information would be:
+- If is a bug, it is reproducible?
+- Is blocked by backend? We should avoid workarounds when checking on this.
+- Design too complex would require a Designer. Normally a simple case is when we can copy another page UX.
+- Too big, we need to check separately in details. Too many pages changed.
+- Not enough information, too much for us to guess what we need. Almost no information.
+After this analysis, we should decide if we are going to do or not.`;
+
+/** The first message of a chat started from Find work: which issue, then PICKUP_CHECK. */
+export function pickupMessage(subject) {
+  return `This chat is about the issue ${ subject.url } ("${ subject.title }").\n\n${ PICKUP_CHECK }`;
+}
+
 /** A subject from a GithubPr or GithubIssue row. */
 export function subjectOf(item, kind = 'pr') {
   return {
