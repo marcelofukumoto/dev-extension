@@ -516,6 +516,13 @@ export interface SessionActivity {
    * hook ends the main agent's turn and says nothing about its subagents; see activityBucket.
    */
   subAgo?: number;
+  /**
+   * Processes still running under the pane's claude, which only `states-all` reports (its fifth
+   * column), and background launches with no notice yet, which only dev-api reads. Either keeps a
+   * conversation whose own turn is over `working`; see activityBucket. (This fork: FORK.md.)
+   */
+  running?: number;
+  pending?: number;
 }
 
 /**
@@ -602,7 +609,7 @@ async function sessionStates(project = '', strict = false): Promise<Map<string, 
       continue;
     }
 
-    const [id, alive, wrote, json] = line.split('\t');
+    const [id, alive, wrote, json, running] = line.split('\t');
 
     if (!id) {
       continue;
@@ -622,6 +629,8 @@ async function sessionStates(project = '', strict = false): Promise<Map<string, 
       notification: String(event.notification || ''),
       at:           String(event.at || ''),
       wroteAgo:     Number(wrote ?? -1),
+      // `states-all` only; `states` has four columns and this reads as nothing.
+      running:      Number(running) || 0,
     }, podStartedMs);
 
     // '' is "nothing believable" and 'none' is "nobody has opened this": neither is an entry.

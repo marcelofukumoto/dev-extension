@@ -33,6 +33,13 @@ Edits to upstream files, each marked with a comment naming this file:
   view) keeps shell.sh's `$5` tunnel and `$6` CLI. **Upstream bug, worth offering to Cody:** cut at
   `$4`, a woken workspace conversation started with no `CLAUDE_CODE_SHELL_PREFIX`, ran its commands
   in the agent pod, and shell.sh recorded that argv for every restore after it.
+- A conversation still running work in the background reads `working`, not `idle`: its turn is
+  over (Stop) while a review's agents or a preview build go on, and nothing writes for minutes.
+  `pkg/dev-extension/seed/agent/sessions.sh` (`states-all` prints two more columns: processes
+  under the pane's claude, and when that claude started), `dev-api/server.mjs` (reads them, and
+  the transcript's background launches with no notice yet, in the new `dev-api/background-work.mjs`),
+  and the same rule in `chat-state.mjs` (`activityBucket`) and `agent.ts`. Regenerate with
+  `node scripts/gen-seed.mjs && node scripts/gen-dev-api.mjs`. **Worth offering to Cody** too.
 
 ## What Conversation mode relies on, outside this repo
 

@@ -22,7 +22,7 @@
 
 /**
  * @typedef {{ alive: boolean, event: string, notification: string, at: string, wroteAgo: number,
- *   subAgo?: number }} ActivitySignals
+ *   subAgo?: number, running?: number, pending?: number }} ActivitySignals
  */
 
 /** @typedef {{ phase: 'absent'|'gone'|'idle'|'working'|'question'|'waiting'|'login', since: string, status: string, verb: string, queue: string[], question: object|null, login: object|null, model: string, modelName: string, modelFrom: string, effort: string, effortSeen: boolean, pendingModel: string, pendingEffort: string, fallbackFrom: string, modelMark: string, effortMark: string, promptMark: string, answeredMark: string, mode: string, permissionMode: string, title: string, cost: object|null, outputTokens: number, lastEnd: string, interrupted: boolean }} ChatState */
@@ -1434,6 +1434,17 @@ export function activityBucket(a, podStartedMs = 0, now = Date.now()) {
   }
   if (a.event === 'Notification' && a.notification && a.notification !== 'idle_prompt') {
     return 'input';
+  }
+  /*
+   * Its own turn is over and work it started is not: processes still running under its claude
+   * (`running`, from `sessions.sh states-all`) or background launches with no notice yet
+   * (`pending`, dev-api/background-work.mjs). A review's agents and a preview build are both, and
+   * the conversation read idle all the way through them. Below the question - that still waits on
+   * the person - and above the hook, whose Stop speaks for the main agent alone. dev-api's
+   * conversationState has the same rule. (This fork: FORK.md.)
+   */
+  if ((Number(a.running) || 0) + (Number(a.pending) || 0) > 0) {
+    return 'working';
   }
   switch (a.event) {
   case 'UserPromptSubmit':

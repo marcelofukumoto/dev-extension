@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { encodeFrame, closeFrame, decodeFrames, joinFrames, handshakeResponse, OP_TEXT, OP_PING, OP_PONG, OP_CLOSE } from './ws-frame.mjs';
 import { newsOf } from './news.mjs';
+import { pendingBackground } from './background-work.mjs';
 import { sweepHousekeeping, singleFlight, sweepsAreWorking, firstSweepDelay, nextSweepDelay, SWEEP_EVERY_MS } from './housekeeping.mjs';
 import { numbersIn } from '../artifact-subjects.mjs';
 import { branchState } from './branch-state.mjs';
@@ -5823,6 +5824,17 @@ function conversationState(a, podStartedMs = 0) {
   if (a.event === 'Notification' && a.notification && a.notification !== 'idle_prompt') {
     return 'input';
   }
+  /*
+   * Its own turn is over and work it started is not: a process still running under its claude
+   * (`running`, from sessions.sh) or a background launch that has not reported back (`pending`,
+   * background-work.mjs). A review's agents and a preview build are both, and the conversation
+   * read idle all the way through them. Below the question on purpose - a question still waits
+   * on the person whatever is running - and above the hook, whose Stop speaks for the main
+   * agent alone. The same rule is in chat-state.mjs's activityBucket. (This fork: FORK.md.)
+   */
+  if ((Number(a.running) || 0) + (Number(a.pending) || 0) > 0) {
+    return 'working';
+  }
   switch (a.event) {
   case 'UserPromptSubmit':
   case 'PreToolUse':
@@ -5834,6 +5846,42 @@ function conversationState(a, podStartedMs = 0) {
   default:
     return 'idle';
   }
+}
+
+/** How much of a transcript is read for its background launches: many turns, as rest-idle.mjs reads. */
+const BACKGROUND_TAIL_BYTES = 1024 * 1024;
+/** The last answer per transcript, while neither it nor its claude has changed. */
+const pendingSeen = new Map();
+
+/**
+ * How many background launches a conversation is still waiting on, for one that otherwise reads
+ * idle. Read off the transcript on this mount; 0 when it is not here (another node) or unknown.
+ */
+function pendingOf(row) {
+  const local = row.transcript.startsWith(AGENT_PREFIX) ? `${ AGENT_ROOT }/${ row.transcript.slice(AGENT_PREFIX.length) }` : '';
+
+  if (!local || !row.since) {
+    return 0;
+  }
+  let stat;
+
+  try {
+    stat = fs.statSync(local);
+  } catch {
+    return 0;
+  }
+  const key = `${ stat.size }:${ stat.mtimeMs }:${ row.since }`;
+  const seen = pendingSeen.get(local);
+
+  // Unchanged, and no launch old enough to age out in between: the same answer as last time.
+  if (seen?.key === key && Date.now() - seen.at < 10 * 60_000) {
+    return seen.count;
+  }
+  const count = pendingBackground(tailLines(local, BACKGROUND_TAIL_BYTES), row.since).length;
+
+  pendingSeen.set(local, { key, count, at: Date.now() });
+
+  return count;
 }
 
 
@@ -5974,17 +6022,29 @@ async function listingTick() {
     }
 
     const rows = [];
+    const podStartedMs = agentStartedMs(pod);
 
     for (const line of out.split('\n')) {
-      const [id, alive, wrote, head] = line.replace(/\r$/, '').split('\t');
+      // The last two are what is running under the pane's claude and when that claude started;
+      // a pod still on the older sessions.sh prints neither, and both read as nothing.
+      const [id, alive, wrote, head, running, since] = line.replace(/\r$/, '').split('\t');
 
       if (!id || !CONVERSATION_ID.test(id)) {
         continue;
       }
-      rows.push({ ...rowOf(id, head), alive: alive === 'yes', resting: alive === 'rest', wroteAgo: Number(wrote ?? -1) });
+      const row = {
+        ...rowOf(id, head), alive: alive === 'yes', resting: alive === 'rest', wroteAgo: Number(wrote ?? -1), running: Number(running) || 0, since: (Number(since) || 0) * 1000, pending: 0,
+      };
+
+      // The transcript is read only for a conversation that would otherwise read idle: anything
+      // else is decided already, and this is the one read per conversation the tick can avoid.
+      if (row.alive && !row.running && row.since && conversationState(row, podStartedMs) === 'idle') {
+        row.pending = pendingOf(row);
+      }
+      rows.push(row);
     }
 
-    await absorb(rows, pod.metadata.name, agentStartedMs(pod), true, started);
+    await absorb(rows, pod.metadata.name, podStartedMs, true, started);
   });
 }
 

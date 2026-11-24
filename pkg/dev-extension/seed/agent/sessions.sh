@@ -300,7 +300,7 @@ case "$VERB" in
     #
     # One line per conversation, tab separated: id, alive (yes/no), seconds since the transcript
     # (or a subagent's) last moved (-1 when there is none), and the head of the state file for
-    # the last event.
+    # the last event. `states-all` adds two after those, below.
     now=$(date +%s)
 
     # `states` walks one prefix; `states-all` walks every state file and tells the two kinds apart
@@ -309,6 +309,8 @@ case "$VERB" in
     # its output has to go on being byte for byte what it was.
     if [ "$VERB" = states-all ]; then
       GLOB="$SESSIONS"/*.state.json
+      # Every process, once, for the two columns `states-all` adds: see `running` below.
+      PROCS=$(ps -eo pid=,ppid=,etimes=,comm=,args= 2>/dev/null)
     else
       GLOB="$SESSIONS/$BASE"*.state.json
     fi
@@ -380,7 +382,49 @@ case "$VERB" in
 
       # Tabs and newlines out of the state head, because this listing is tab separated and one
       # line per conversation.
-      printf '%s\t%s\t%s\t%s\n' "$id" "$alive" "$wrote" "$(head -c 800 "$state" | tr -d '\n\t')"
+      head=$(head -c 800 "$state" | tr -d '\n\t')
+
+      if [ "$VERB" != states-all ]; then
+        printf '%s\t%s\t%s\t%s\n' "$id" "$alive" "$wrote" "$head"
+        continue
+      fi
+
+      # Two more on `states-all`, after the head so that every reader splitting four still reads
+      # what it always did: what is still running under this pane's claude, and when that claude
+      # started (epoch seconds; 0 for both when there is no claude to ask).
+      #
+      # A conversation whose own turn is over can still be busy. A review sends agents off and a
+      # preview build runs in the background; the main agent stops - its Stop hook says idle -
+      # and its transcript does not move again until one of them reports back, so after ninety
+      # seconds the dot said idle while a nine-minute build was half done. Whatever it started
+      # is a process under its claude (every command, the agents' too, is a child: a `kubectl
+      # exec` into the workspace here), so counting them is the answer this pod can give. Not
+      # counted, as in rest-idle.mjs: what every claude has under it whatever it is doing, an MCP
+      # server. The start is what lets the reader tell work this claude sent off from work an
+      # earlier one did, which died with it: see dev-api/background-work.mjs. (This fork: FORK.md.)
+      running=0
+      since=0
+
+      if [ "$alive" = yes ]; then
+        pane=$(tmux list-panes -t "mc-$id" -F '#{pane_pid}' 2>/dev/null | head -n 1)
+
+        if [ -n "$pane" ]; then
+          read -r running age <<EOF
+$(printf '%s\n' "$PROCS" | awk -v pane="$pane" '
+  { pid[NR] = $1; parent[NR] = $2; age[NR] = $3; comm[NR] = $4; line[NR] = tolower($0) }
+  END {
+    for (i = 1; i <= NR; i++) if (parent[i] == pane && comm[i] == "claude") { c = pid[i]; a = age[i] }
+    n = 0
+    if (c != "") for (i = 1; i <= NR; i++) if (parent[i] == c && line[i] !~ /mcp|\[mainthread\]/) n++
+    print n, (c == "" ? -1 : a)
+  }')
+EOF
+          case "$running" in ''|*[!0-9]*) running=0 ;; esac
+          case "$age" in ''|*[!0-9]*) ;; *) since=$((now - age)) ;; esac
+        fi
+      fi
+
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$id" "$alive" "$wrote" "$head" "$running" "$since"
     done
 
     # The sentinel, and only on `states-all`.

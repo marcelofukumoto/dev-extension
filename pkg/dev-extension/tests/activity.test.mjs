@@ -129,3 +129,21 @@ test('a caller that cannot tell them apart behaves exactly as before', () => {
     alive: true, event: 'Stop', notification: '', at: agoSeconds(2), wroteAgo: 3,
   }, NOW - 600_000, NOW), 'idle');
 });
+
+test('a conversation whose turn is over but whose work is not reads working', () => {
+  // A review sent its passes off as agents and a preview build into the background, and the main
+  // agent stopped. Nothing wrote for minutes, so this read idle all the way through them.
+  const stopped = {
+    alive: true, event: 'Stop', notification: '', at: agoSeconds(300), wroteAgo: 300, subAgo: 120,
+  };
+
+  assert.equal(activityBucket(stopped, NOW - 600_000, NOW), 'idle');
+  assert.equal(activityBucket({ ...stopped, running: 1 }, NOW - 600_000, NOW), 'working');
+  assert.equal(activityBucket({ ...stopped, pending: 2 }, NOW - 600_000, NOW), 'working');
+});
+
+test('a question still outranks work running in the background', () => {
+  assert.equal(activityBucket({
+    alive: true, event: 'Notification', notification: 'permission', at: agoSeconds(200), wroteAgo: 210, running: 1, pending: 1,
+  }, NOW - 600_000, NOW), 'input');
+});
