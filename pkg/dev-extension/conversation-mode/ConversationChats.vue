@@ -414,7 +414,7 @@ export default {
           <button
             v-if="action"
             type="button"
-              class="chats__action"
+            class="chats__action"
             :class="{ 'chats__action--on': confirming }"
             :title="`Send the ${ action.label.toLowerCase() } prompt to this chat - you see it first`"
             :data-action="action.id"
