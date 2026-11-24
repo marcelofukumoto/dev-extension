@@ -15,10 +15,11 @@ import StudioTerminal from '../components/StudioTerminal.vue';
 import StageSteps from '../components/StageSteps.vue';
 import AppIcon from '../components/focus/AppIcon.vue';
 import ClaudeUsage from './ClaudeUsage.vue';
+import ReviewRounds from './ReviewRounds.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import { chatCommand } from './config.mjs';
 import { railSections, filterRail } from './rail.mjs';
-import { ago, roundsText, roundsTitle } from './projects.mjs';
+import { ago } from './projects.mjs';
 
 /** Chips in the links bar before "+N more". */
 const LINKS_SHOWN = 8;
@@ -40,7 +41,7 @@ export default {
   name: 'ConversationChats',
 
   components: {
-    StudioTerminal, StageSteps, AppIcon, ClaudeUsage
+    StudioTerminal, StageSteps, AppIcon, ClaudeUsage, ReviewRounds
   },
 
   emits: ['select', 'create', 'rename', 'close', 'archive'],
@@ -116,13 +117,9 @@ export default {
       return item.role === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
     },
 
-    /** How many times you reviewed the open chat's pull request, when it is one you review; '' otherwise. */
+    /** How many times you reviewed the open chat's pull request, when it is one you review (rail.mjs). */
     currentRounds() {
-      return roundsText(this.currentItem?.rounds);
-    },
-
-    currentRoundsTitle() {
-      return roundsTitle(this.currentItem?.rounds);
+      return this.currentItem?.rounds;
     },
 
     /** The last message you sent the open chat ({ text, at }), or null. */
@@ -514,10 +511,9 @@ export default {
       <div
         v-if="currentRounds"
         class="chats__rounds"
-        :title="currentRoundsTitle"
         data-testid="chat-rounds"
       >
-        {{ currentRounds }}
+        <ReviewRounds :rounds="currentRounds" />
       </div>
 
       <div
@@ -826,8 +822,6 @@ export default {
       padding:       5px 16px;
       border-bottom: 1px solid var(--conv-line);
       background:    var(--conv-surface);
-      color:         var(--conv-text);
-      font-size:     12px;
     }
 
     // The last message you sent this chat: what it was last asked, so where it stands is a glance.

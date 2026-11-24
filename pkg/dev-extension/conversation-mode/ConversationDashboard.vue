@@ -7,10 +7,11 @@
 // chat opens it; every row that has none can start one, named for it and opened with its link.
 import AppIcon from '../components/focus/AppIcon.vue';
 import ReviewerMarks from './ReviewerMarks.vue';
+import ReviewRounds from './ReviewRounds.vue';
 import PickupDialog from './PickupDialog.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
-  CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting, roundsText, roundsTitle
+  CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
 } from './projects.mjs';
 import {
   railSections, isArchived, byLastUpdated, activityBySubject, attentionByLastUpdated
@@ -52,7 +53,9 @@ const STATE_LABEL = {
 export default {
   name: 'ConversationDashboard',
 
-  components: { AppIcon, ReviewerMarks, PickupDialog },
+  components: {
+    AppIcon, ReviewerMarks, ReviewRounds, PickupDialog
+  },
 
   emits: ['open-chat', 'start-chat', 'new-chat', 'reload', 'archive', 'view-chats', 'marks'],
 
@@ -501,12 +504,8 @@ export default {
     when(iso) {
       return ago(iso, this.now);
     },
-    /** How many times you reviewed a review row's pull request; '' for the other kinds. */
-    roundsOf(row) {
-      return REVIEW_ROWS.has(row.kind) ? roundsText(row.rounds, this.now) : '';
-    },
-
-    roundsTitle,
+    /** A row about a pull request you review: it says how many times you reviewed it. */
+    isReviewRow: (row) => REVIEW_ROWS.has(row.kind),
 
     /** The time a row of Needs your attention is sorted by: "chat 2m ago" when its chat is the newer. */
     rowWhen(row) {
@@ -770,12 +769,13 @@ export default {
                 <template v-if="row.updated"> · {{ rowWhen(row) }}</template>
                 <template v-if="row.kind === 'question'"> · the agent is waiting for your answer</template>
               </span>
-              <span
-                v-if="roundsOf(row)"
+              <ReviewRounds
+                v-if="isReviewRow(row)"
                 class="dash__rounds"
-                :title="roundsTitle(row.rounds)"
+                :rounds="row.rounds"
+                :now="now"
                 data-testid="attention-rounds"
-              >{{ roundsOf(row) }}</span>
+              />
               <ReviewerMarks
                 v-if="row.reviewers && row.reviewers.length"
                 class="dash__reviewers"
@@ -1518,8 +1518,7 @@ export default {
 
     // How many times you reviewed it: between the reference line and the reviewers.
     &__rounds {
-      color:     var(--conv-ink);
-      font-size: 12px;
+      margin-top: 3px;
     }
 
     &__row-meta,

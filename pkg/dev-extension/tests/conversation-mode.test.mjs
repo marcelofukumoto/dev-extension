@@ -1102,7 +1102,7 @@ test('the reader keeps the last message a person sent, not tool results, wrapper
   assert.deepEqual(out.said, { text: 'Should it include the optional third point?\nAnd post it as pending.', at: '2026-11-23T10:00:00Z' });
 });
 
-// ── How many times you reviewed it (server/github.mjs myRounds, projects.mjs roundsText) ───────
+// ── How many times you reviewed it (server/github.mjs myRounds, projects.mjs roundsSummary) ────
 
 test('a round is a review you posted; a thread reply and a pending review are not', async() => {
   const { myRounds } = await import('../conversation-mode/server/github.mjs');
@@ -1127,16 +1127,15 @@ test('a round is a review you posted; a thread reply and a pending review are no
   assert.deepEqual(myRounds({}, 'me'), []);
 });
 
-test('the count, in a line', async() => {
-  const { roundsText, roundsTitle } = await import('../conversation-mode/projects.mjs');
+test('the count, as a number, and what the last one said', async() => {
+  const { roundsSummary, roundsTitle } = await import('../conversation-mode/projects.mjs');
   const now = Date.parse('2026-11-24T15:00:00Z');
   const two = [{ state: 'CHANGES_REQUESTED', at: '2026-11-19T14:50:00Z' }, { state: 'APPROVED', at: '2026-11-24T12:00:00Z' }];
 
-  assert.equal(roundsText(undefined, now), '');
-  assert.equal(roundsText([], now), 'Not reviewed by you yet');
-  assert.equal(roundsText(two.slice(0, 1), now), 'Reviewed once · last changes requested 5d ago');
-  assert.equal(roundsText(two, now), 'Reviewed twice · last approved 3h ago');
-  assert.equal(roundsText([...two, ...two], now), 'Reviewed 4 times · last approved 3h ago');
+  assert.equal(roundsSummary(undefined, now), null);
+  assert.deepEqual(roundsSummary([], now), { count: 0, last: '' });
+  assert.deepEqual(roundsSummary(two.slice(0, 1), now), { count: 1, last: 'changes requested 5d ago' });
+  assert.deepEqual(roundsSummary([...two, ...two], now), { count: 4, last: 'approved 3h ago' });
   assert.equal(roundsTitle(two), '1. Changes requested, 2026-11-19\n2. Approved, 2026-11-24');
 });
 

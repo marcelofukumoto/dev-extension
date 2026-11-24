@@ -349,23 +349,23 @@ const ROUND_STATE = {
 };
 
 /**
- * How many times you reviewed a pull request, in a line: "Reviewed twice · last changes requested
- * 3h ago". `rounds` is conversation-api's (github.mjs, myRounds): what you posted, thread replies
- * left out. '' when there is no count to give - a page that asked GitHub itself has none.
+ * How many times you reviewed a pull request, and what the last one said: `{ count: 2, last:
+ * 'changes requested 3h ago' }` (ReviewRounds.vue draws the count as a badge). `rounds` is
+ * conversation-api's (github.mjs, myRounds): what you posted, thread replies left out. null when
+ * there is no count to give - a page that asked GitHub itself has none.
  */
-export function roundsText(rounds, now = Date.now()) {
+export function roundsSummary(rounds, now = Date.now()) {
   if (!Array.isArray(rounds)) {
-    return '';
+    return null;
   }
-  if (!rounds.length) {
-    return 'Not reviewed by you yet';
+  const last = rounds[rounds.length - 1];
+
+  if (!last) {
+    return { count: 0, last: '' };
   }
-  const n = rounds.length;
-  const times = n === 1 ? 'once' : n === 2 ? 'twice' : `${ n } times`;
-  const last = rounds[n - 1];
   const when = ago(last.at, now);
 
-  return `Reviewed ${ times } · last ${ ROUND_STATE[last.state] || String(last.state || '').toLowerCase() }${ when ? ` ${ when }` : '' }`;
+  return { count: rounds.length, last: `${ ROUND_STATE[last.state] || String(last.state || '').toLowerCase() }${ when ? ` ${ when }` : '' }` };
 }
 
 /** Each round on a line of its own, for the count's tooltip: "1. Changes requested, 2026-11-19". */
