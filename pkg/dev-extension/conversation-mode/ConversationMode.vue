@@ -26,7 +26,7 @@ import {
 import { CONVERSATION_ROUTE } from './routes';
 import { CONVERSATION_WORKSPACE, nextChatTitle } from './config.mjs';
 import {
-  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage, pickupMessage, attentionRows
+  PROJECTS, mergeWork, subjectKey, shortRef, chatTitleFor, openingMessage, pickupMessage, reviewStartMessage, attentionRows
 } from './projects.mjs';
 import {
   extractUrls, githubRef, titleFromMessage, isDefaultTitle, chatLinks
@@ -570,7 +570,7 @@ export default {
         }).length : 0;
         const title = !subject ? nextChatTitle(this.chats.map((c) => c.title)) : quiet && others ? `${ shortRef(subject.repo, subject.number) } chat ${ others + 1 }` : chatTitleFor(subject);
         // Nothing for a chat about nothing, or another one on the same subject.
-        const first = !subject || quiet ? '' : (opening === 'pickup' ? pickupMessage(subject) : openingMessage(subject));
+        const first = !subject || quiet ? '' : this.openingFor(subject, opening);
         const made = await startConversation(CONVERSATION_WORKSPACE, title, first);
 
         this.chats = [...this.chats, { id: made.id, title: made.title || title, cli: '' }];
@@ -594,6 +594,25 @@ export default {
         this.creating = false;
         this.starting = '';
       }
+    },
+
+    /**
+     * What a new chat on a subject opens with: Find work's doable-or-not check for an issue picked
+     * there, a whole review (with which run it is) for a pull request you review, and otherwise
+     * where it stands.
+     */
+    openingFor(subject, opening = '') {
+      if (opening === 'pickup') {
+        return pickupMessage(subject);
+      }
+      const key = subjectKey(subject.repo, subject.number);
+      const reviewing = (this.work.reviewing || []).find((p) => subjectKey(p.repo, p.number) === key);
+
+      if (subject.kind === 'pr' && (subject.role === 'reviewer' || (!subject.role && reviewing))) {
+        return reviewStartMessage(subject, reviewing?.rounds);
+      }
+
+      return openingMessage(subject);
     },
 
     /**

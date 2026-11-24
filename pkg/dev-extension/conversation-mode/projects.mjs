@@ -104,6 +104,38 @@ At the end of the message on the chat. Add if suggest Approved or Request Change
 First run you can be strict if approves or not, second you can decrease the strictiness, and third one you can be more flexible`;
 
 /**
+ * What a chat started on a pull request you review opens with: the first time it is looked at
+ * here, a whole review. Marcelo's wording (2026-11-24), kept as he wrote it. REVIEW_IT is the
+ * header button's, for a chat that is already going.
+ */
+export const REVIEW_START = `We should review this PR using process B.
+Let's work on it.
+Do an analysis what is the best UI/UX based on the usual patterns.
+Check the backend feature, ins and out of the APIs to be able to work on it.
+After finishing the review B process, check the outcome and see if the points are true, make sure you can reproduce the problems.
+After finished, check with the the training UI process where we create a presentation, so we can see what has been created. Share the link.
+At the end of the message on the chat. Add if suggest Approved or Request Changes. Add the comments enumerated.
+First run you can be strict if approves or not, second you can decrease the strictiness, and third one you can be more flexible`;
+
+/**
+ * The line the review prompts end with, since how strict to be depends on it: which run this is,
+ * from the reviews you posted (github.mjs, myRounds). '' when that count is not known.
+ */
+export function reviewRunLine(rounds) {
+  if (!Array.isArray(rounds)) {
+    return '';
+  }
+  const n = rounds.length;
+
+  return `\n\nSo far you have posted ${ n } review${ n === 1 ? '' : 's' } on this PR, so this is run ${ n + 1 }.`;
+}
+
+/** The first message of a chat started on a pull request you review: which one, REVIEW_START, the run. */
+export function reviewStartMessage(subject, rounds) {
+  return `This chat is about the pull request ${ subject.url } ("${ subject.title }").\n\n${ REVIEW_START }${ reviewRunLine(rounds) }`;
+}
+
+/**
  * The button a chat's header offers, or null: "Work on it" on an issue of yours, "Review it" on a
  * pull request you review. The review one says which run this is, from the reviews you posted
  * (github.mjs, myRounds), since how strict to be depends on it; nothing is said when that count
@@ -114,10 +146,7 @@ export function chatAction(subject, role, rounds) {
     return { id: 'work', label: 'Work on it', text: WORK_ON_IT };
   }
   if (subject?.kind === 'pr' && role === 'reviewer') {
-    const n = Array.isArray(rounds) ? rounds.length : -1;
-    const run = n < 0 ? '' : `\n\nSo far you have posted ${ n } review${ n === 1 ? '' : 's' } on this PR, so this is run ${ n + 1 }.`;
-
-    return { id: 'review', label: 'Review it', text: `${ REVIEW_IT }${ run }` };
+    return { id: 'review', label: 'Review it', text: `${ REVIEW_IT }${ reviewRunLine(rounds) }` };
   }
 
   return null;

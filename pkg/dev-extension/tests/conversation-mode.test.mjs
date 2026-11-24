@@ -1191,3 +1191,14 @@ test('the chat header button: Work on it on your issue, Review it on a PR you re
   assert.ok(WORK_ON_IT.startsWith('We should work on the UI.\n') && WORK_ON_IT.split('\n').length === 8);
   assert.ok(REVIEW_IT.startsWith('We should review this PR using process B.\n') && REVIEW_IT.split('\n').length === 6);
 });
+
+test('a chat started on a PR you review opens with the whole review, naming the PR and the run', async() => {
+  const { reviewStartMessage, REVIEW_START, reviewRunLine } = await import('../conversation-mode/projects.mjs');
+  const s = { repo: 'rancher/dashboard', number: 7, kind: 'pr', url: 'https://github.com/rancher/dashboard/pull/7', title: 'T', role: 'reviewer' };
+
+  assert.equal(reviewStartMessage(s, []), `This chat is about the pull request https://github.com/rancher/dashboard/pull/7 ("T").\n\n${ REVIEW_START }\n\nSo far you have posted 0 reviews on this PR, so this is run 1.`);
+  assert.ok(reviewStartMessage(s).endsWith(REVIEW_START));
+  assert.equal(reviewRunLine([{}, {}]), '\n\nSo far you have posted 2 reviews on this PR, so this is run 3.');
+  assert.ok(REVIEW_START.startsWith('We should review this PR using process B.\nLet\'s work on it.\n'));
+  assert.equal(REVIEW_START.split('\n').length, 8);
+});
