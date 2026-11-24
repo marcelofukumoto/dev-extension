@@ -48,6 +48,9 @@ const DECIDED_STATES = new Set(['working', 'input', 'idle', 'finished']);
 /** How often the transcripts are read: the links bar and the chats' names come from them. */
 const TRANSCRIPT_POLL_MS = 20000;
 
+/** How long a closed chat's terminal gets to let go of its pane before the conversation is ended. */
+const CLOSE_SETTLE_MS = 1500;
+
 /** How often the "Nothing to do" marks are read again, for one made in another browser or by an agent. */
 const MARKS_POLL_MS = 60000;
 
@@ -696,24 +699,37 @@ export default {
       }
     },
 
+    /**
+     * Close a chat: its pane first, then the conversation. Ended while its terminal was still
+     * mounted, the terminal saw its session die, reconnected, and shell.sh started a new one - a
+     * pane left running under a chat that was gone, which then came back with the chat number
+     * (mf-dev, chats 45 and 46 on 2026-11-24). So the tab goes, the page moves off it and the
+     * terminal is let go before the end; a failed end puts the tab back.
+     */
     async closeChat(id) {
       this.error = '';
+      const at = this.chats.findIndex((c) => c.id === id);
+      const chat = this.chats[at];
+
+      this.chats = this.chats.filter((c) => c.id !== id);
+      if (this.current === id) {
+        const next = this.chats[Math.min(at, this.chats.length - 1)];
+
+        this.go('chat', next ? next.id : '', true);
+      }
+      await this.$nextTick();
+      await new Promise((done) => setTimeout(done, CLOSE_SETTLE_MS));
       try {
         await endConversation(CONVERSATION_WORKSPACE, id);
-        const at = this.chats.findIndex((c) => c.id === id);
-
-        this.chats = this.chats.filter((c) => c.id !== id);
         if (this.links[id]) {
           this.links = await updateLinks((links) => {
             delete links[id];
           }).catch(() => this.links);
         }
-        if (this.current === id) {
-          const next = this.chats[Math.min(at, this.chats.length - 1)];
-
-          this.go('chat', next ? next.id : '', true);
-        }
       } catch (e) {
+        if (chat && !this.chats.some((c) => c.id === id)) {
+          this.chats = [...this.chats.slice(0, at), chat, ...this.chats.slice(at)];
+        }
         this.error = `The chat could not be closed: ${ e?.message || e }`;
       }
     },
