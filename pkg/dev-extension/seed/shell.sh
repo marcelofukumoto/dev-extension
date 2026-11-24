@@ -340,6 +340,21 @@ if [ "$MODE" = start ]; then
   esac
 fi
 
+# A conversation that has been ended has no directory (sessions.sh `end` removes it, `new` makes
+# it), and nothing may start a pane for it. (This fork: FORK.md.) A page still showing it for the
+# seconds before it heard of the end - attaching, or waking what looked like a resting pane - did
+# start one, and that pane ran on under no conversation, then came back with the number when it
+# was handed out again (mf-dev, chats 45 and 46, 2026-11-24). Only workspace conversations
+# (`p-...`), which are always made by `new`.
+case "$SESSION" in
+  p-*)
+    if [ "$MODE" != shell ] && [ ! -d "$(dirname "$HOME_DIR")/sessions/$SESSION" ]; then
+      echo "not starting $SESSION: it has been ended"
+      exit 0
+    fi
+    ;;
+esac
+
 # Recorded, so that a pod restart brings the pane back: boot.sh reads these and starts each
 # one detached, and the loop inside resumes the conversation by its id. One file per pane,
 # its arguments one per line, beside the sessions; removed when the conversation is ended

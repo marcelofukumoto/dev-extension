@@ -46,6 +46,10 @@ Edits to upstream files, each marked with a comment naming this file:
   number is handed out again with whatever outlived the close: the next pane `--resume`d the old
   transcript, or was already running before its opening prompt was queued and never read it.
   **Upstream bug, worth offering to Cody.** Regenerate with `node scripts/gen-seed.mjs`.
+- `pkg/dev-extension/seed/shell.sh` refuses to start a pane for a `p-...` conversation whose
+  directory is gone (it was ended). A page still showing it for the seconds before it heard of the
+  end attached to it or woke it, and that pane ran on under no conversation. Conversation mode's
+  `closeChat` also lets go of the pane before ending it. **Upstream bug, worth offering to Cody.**
 
 ## What Conversation mode relies on, outside this repo
 
