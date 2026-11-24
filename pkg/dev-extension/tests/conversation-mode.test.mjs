@@ -1101,3 +1101,64 @@ test('the reader keeps the last message a person sent, not tool results, wrapper
 
   assert.deepEqual(out.said, { text: 'Should it include the optional third point?\nAnd post it as pending.', at: '2026-11-23T10:00:00Z' });
 });
+
+// ── How many times you reviewed it (server/github.mjs myRounds, projects.mjs roundsText) ───────
+
+test('a round is a review you posted; a thread reply and a pending review are not', async() => {
+  const { myRounds } = await import('../conversation-mode/server/github.mjs');
+  const review = (login, state, at, reply = false) => ({
+    author: { login }, state, submittedAt: at, comments: { nodes: reply ? [{ replyTo: { id: 'c1' } }] : [] }
+  });
+  const node = {
+    reviews: {
+      nodes: [
+        review('me', 'CHANGES_REQUESTED', '2026-11-19T14:50:00Z'),
+        review('me', 'COMMENTED', '2026-11-24T12:45:00Z', true), // "Makes sense, thank you!" in a thread
+        review('cody', 'COMMENTED', '2026-11-24T12:46:00Z'),
+        review('me', 'COMMENTED', '2026-11-24T12:47:00Z'), // a round of comments, no verdict
+        review('me', 'DISMISSED', '2026-11-24T12:48:00Z'),
+        review('me', 'PENDING', null),
+      ]
+    }
+  };
+
+  assert.deepEqual(myRounds(node, 'me').map((r) => r.state), ['CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED']);
+  assert.deepEqual(myRounds(node, ''), []);
+  assert.deepEqual(myRounds({}, 'me'), []);
+});
+
+test('the count, in a line', async() => {
+  const { roundsText, roundsTitle } = await import('../conversation-mode/projects.mjs');
+  const now = Date.parse('2026-11-24T15:00:00Z');
+  const two = [{ state: 'CHANGES_REQUESTED', at: '2026-11-19T14:50:00Z' }, { state: 'APPROVED', at: '2026-11-24T12:00:00Z' }];
+
+  assert.equal(roundsText(undefined, now), '');
+  assert.equal(roundsText([], now), 'Not reviewed by you yet');
+  assert.equal(roundsText(two.slice(0, 1), now), 'Reviewed once · last changes requested 5d ago');
+  assert.equal(roundsText(two, now), 'Reviewed twice · last approved 3h ago');
+  assert.equal(roundsText([...two, ...two], now), 'Reviewed 4 times · last approved 3h ago');
+  assert.equal(roundsTitle(two), '1. Changes requested, 2026-11-19\n2. Approved, 2026-11-24');
+});
+
+test('review rows carry the count; asked again reads red on the rail', async() => {
+  const { statusOf: status, railSections: rail } = await import('../conversation-mode/rail.mjs');
+  const rounds = [{ state: 'CHANGES_REQUESTED', at: '2026-11-19T14:50:00Z' }];
+  const work = {
+    login:     'me',
+    mine:      [],
+    issues:    [],
+    reviewing: [
+      pr({ number: 1, reviewRequested: true, reviewedAt: '2026-11-19T14:50:00Z', rounds }),
+      pr({ number: 2, reviewRequested: true, rounds: [] }),
+    ],
+  };
+  const rows = attentionRows(work);
+
+  assert.deepEqual(rows.map((r) => [r.kind, r.rounds.length]), [['review', 0], ['rereview', 1]]);
+  assert.equal(status('reviewer', { kind: 'pr' }, { kind: 'pr', item: work.reviewing[0] }).tone, 'alert');
+
+  const links = { c1: { subject: { repo: 'rancher/dashboard', number: 1, kind: 'pr' } } };
+  const item = rail([{ id: 'c1', title: 'x' }], links, work, {}).flatMap((s) => s.items)[0];
+
+  assert.deepEqual(item.rounds, rounds);
+});

@@ -288,17 +288,17 @@ export function attentionRows(work, chats = [], activity = {}, links = {}) {
 
     if (pr.reviewRequested && pr.reviewedAt) {
       rows.push({
-        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `${ pr.author } asked you again`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('rereview', pr),
+        kind: 'rereview', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `${ pr.author } asked you again`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('rereview', pr), rounds: pr.rounds,
       });
     } else if (pr.reviewRequested) {
       rows.push({
-        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('review', pr),
+        kind: 'review', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.updatedAt, why: `From ${ pr.author }`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('review', pr), rounds: pr.rounds,
       });
     } else if (!pr.maintained && pushedSinceReview(pr)) {
       const since = pr.myReview === 'CHANGES_REQUESTED' ? 'you asked for changes' : 'your review';
 
       rows.push({
-        kind: 'waiting', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since ${ since } - not asked again yet`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('waiting', pr),
+        kind: 'waiting', key, title: pr.title, subject: { ...subjectOf(pr), role: 'reviewer' }, chatId: chatFor[key] || '', url: pr.url, at: pr.pushedAt, why: `${ pr.author } pushed since ${ since } - not asked again yet`, draft: !!pr.draft, author: pr.author || '', reviewers: pr.reviewers || [], stamp: prStamp('waiting', pr), rounds: pr.rounds,
       });
     }
   }
@@ -342,6 +342,39 @@ export function ago(iso, now = Date.now()) {
   }
 
   return `${ Math.floor(s / 86400) }d ago`;
+}
+
+const ROUND_STATE = {
+  APPROVED: 'approved', CHANGES_REQUESTED: 'changes requested', COMMENTED: 'commented', DISMISSED: 'dismissed'
+};
+
+/**
+ * How many times you reviewed a pull request, in a line: "Reviewed twice · last changes requested
+ * 3h ago". `rounds` is conversation-api's (github.mjs, myRounds): what you posted, thread replies
+ * left out. '' when there is no count to give - a page that asked GitHub itself has none.
+ */
+export function roundsText(rounds, now = Date.now()) {
+  if (!Array.isArray(rounds)) {
+    return '';
+  }
+  if (!rounds.length) {
+    return 'Not reviewed by you yet';
+  }
+  const n = rounds.length;
+  const times = n === 1 ? 'once' : n === 2 ? 'twice' : `${ n } times`;
+  const last = rounds[n - 1];
+  const when = ago(last.at, now);
+
+  return `Reviewed ${ times } · last ${ ROUND_STATE[last.state] || String(last.state || '').toLowerCase() }${ when ? ` ${ when }` : '' }`;
+}
+
+/** Each round on a line of its own, for the count's tooltip: "1. Changes requested, 2026-11-19". */
+export function roundsTitle(rounds) {
+  return (Array.isArray(rounds) ? rounds : []).map((r, i) => {
+    const state = ROUND_STATE[r.state] || String(r.state || '').toLowerCase();
+
+    return `${ i + 1 }. ${ state.charAt(0).toUpperCase() }${ state.slice(1) }, ${ String(r.at || '').slice(0, 10) }`;
+  }).join('\n');
 }
 
 /** "Good morning" / "Good afternoon" / "Good evening" by the local hour. */

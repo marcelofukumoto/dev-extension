@@ -17,7 +17,7 @@ const PR_FIELDS = `
   } } } } } }
   latestOpinionatedReviews(first: 10) { nodes { state body author { login } } }
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { slug } } } }
-  reviews(last: 30) { nodes { author { login } submittedAt state } }
+  reviews(last: 30) { nodes { author { login } submittedAt state comments(first: 1) { nodes { replyTo { id } } } } }
 `;
 
 const ISSUE_FIELDS = `
@@ -134,6 +134,19 @@ export function uncheckedBoxes(body) {
     .slice(0, 5);
 }
 
+/**
+ * The reviews you posted on it, oldest first, as `{ state, at }`: how many rounds it has had from
+ * you. Replying in a thread files a review of its own on GitHub - COMMENTED, its one comment a
+ * reply - and so does resolving with a word; those are answers inside a round, not rounds, and
+ * are left out. So is a review still pending: nobody but you has seen it.
+ */
+export function myRounds(node, login) {
+  return (node.reviews?.nodes || [])
+    .filter((r) => login && r?.author?.login === login && r.submittedAt && r.state !== 'PENDING')
+    .filter((r) => !(r.state === 'COMMENTED' && r.comments?.nodes?.[0]?.replyTo))
+    .map((r) => ({ state: r.state, at: r.submittedAt }));
+}
+
 /** A pull request as the dashboard draws it (github.ts's GithubPr, the fields it reads). */
 export function shapePr(node, login, reviewRequested = false) {
   const repo = node.repository?.nameWithOwner || '';
@@ -170,6 +183,8 @@ export function shapePr(node, login, reviewRequested = false) {
     // Your own standing verdict on it (APPROVED, CHANGES_REQUESTED), '' when you gave none.
     myReview:  opinions.find((r) => r.author?.login === login)?.state || '',
     reviewers: reviewersOf(node),
+    // Only here, not in github.ts's answer: a page that asked GitHub itself shows no count.
+    rounds:    myRounds(node, login),
     unchecked: uncheckedBoxes(node.body),
     // What stands between it and a merge, as GitHub sees it: CLEAN, BLOCKED (a branch rule), BEHIND,
     // DIRTY (conflicts), UNSTABLE (a non-required check fails), UNKNOWN (not worked out yet).

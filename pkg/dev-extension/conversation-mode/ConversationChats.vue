@@ -18,7 +18,7 @@ import ClaudeUsage from './ClaudeUsage.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import { chatCommand } from './config.mjs';
 import { railSections, filterRail } from './rail.mjs';
-import { ago } from './projects.mjs';
+import { ago, roundsText, roundsTitle } from './projects.mjs';
 
 /** Chips in the links bar before "+N more". */
 const LINKS_SHOWN = 8;
@@ -114,6 +114,15 @@ export default {
       }
 
       return item.role === 'reviewer' ? REVIEW_STEPS : FIX_STEPS;
+    },
+
+    /** How many times you reviewed the open chat's pull request, when it is one you review; '' otherwise. */
+    currentRounds() {
+      return roundsText(this.currentItem?.rounds);
+    },
+
+    currentRoundsTitle() {
+      return roundsTitle(this.currentItem?.rounds);
     },
 
     /** The last message you sent the open chat ({ text, at }), or null. */
@@ -503,6 +512,15 @@ export default {
       </nav>
 
       <div
+        v-if="currentRounds"
+        class="chats__rounds"
+        :title="currentRoundsTitle"
+        data-testid="chat-rounds"
+      >
+        {{ currentRounds }}
+      </div>
+
+      <div
         v-if="currentSaid"
         class="chats__said"
         :class="{ 'chats__said--open': saidOpen }"
@@ -731,6 +749,7 @@ export default {
 
     &__status {
       &--warn { color: var(--conv-orange-text); font-weight: 600; }
+      &--alert { color: var(--conv-blocked); font-weight: 600; }
       &--ok { color: var(--conv-ok); font-weight: 600; }
     }
 
@@ -797,8 +816,18 @@ export default {
     &__head,
     &__tabs,
     &__links,
+    &__rounds,
     &__said {
       flex: 0 0 auto;
+    }
+
+    // How many times you reviewed the pull request: one line under its links.
+    &__rounds {
+      padding:       5px 16px;
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-surface);
+      color:         var(--conv-text);
+      font-size:     12px;
     }
 
     // The last message you sent this chat: what it was last asked, so where it stands is a glance.

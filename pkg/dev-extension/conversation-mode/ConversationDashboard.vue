@@ -10,7 +10,7 @@ import ReviewerMarks from './ReviewerMarks.vue';
 import PickupDialog from './PickupDialog.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import {
-  CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting
+  CARDS, attentionRows, subjectKey, shortRef, cardSummary, ago, greeting, roundsText, roundsTitle
 } from './projects.mjs';
 import {
   railSections, isArchived, byLastUpdated, activityBySubject, attentionByLastUpdated
@@ -21,6 +21,9 @@ import {
   reasonsForEditing, renameReason, removeReason
 } from './nothing-to-do.mjs';
 import { updateMarks } from './marks';
+
+/** The rows about a pull request you review: they say how many times you reviewed it. */
+const REVIEW_ROWS = new Set(['review', 'rereview', 'waiting']);
 
 /** Rows of "Needs your attention" shown before "Show all". */
 const ATTENTION_SHOWN = 10;
@@ -350,7 +353,7 @@ export default {
         return 'dash__stage--todo';
       }
 
-      return item.activity === 'input' || item.status.tone === 'warn' ? 'dash__stage--wait' : 'dash__stage--now';
+      return item.activity === 'input' || item.status.tone === 'warn' || item.status.tone === 'alert' ? 'dash__stage--wait' : 'dash__stage--now';
     },
 
     teamStatus(item) {
@@ -498,6 +501,13 @@ export default {
     when(iso) {
       return ago(iso, this.now);
     },
+    /** How many times you reviewed a review row's pull request; '' for the other kinds. */
+    roundsOf(row) {
+      return REVIEW_ROWS.has(row.kind) ? roundsText(row.rounds, this.now) : '';
+    },
+
+    roundsTitle,
+
     /** The time a row of Needs your attention is sorted by: "chat 2m ago" when its chat is the newer. */
     rowWhen(row) {
       const at = this.when(new Date(row.updated).toISOString());
@@ -760,6 +770,12 @@ export default {
                 <template v-if="row.updated"> · {{ rowWhen(row) }}</template>
                 <template v-if="row.kind === 'question'"> · the agent is waiting for your answer</template>
               </span>
+              <span
+                v-if="roundsOf(row)"
+                class="dash__rounds"
+                :title="roundsTitle(row.rounds)"
+                data-testid="attention-rounds"
+              >{{ roundsOf(row) }}</span>
               <ReviewerMarks
                 v-if="row.reviewers && row.reviewers.length"
                 class="dash__reviewers"
@@ -1436,8 +1452,9 @@ export default {
       text-align:    center;
 
       &--review,
-      &--rereview,
       &--question { background: var(--conv-question-bg); color: var(--conv-question); }
+      // Asked again: red, so it stands out from the grey "Waiting review request" it was a moment ago.
+      &--rereview,
       &--blocked { background: var(--conv-blocked-bg); color: var(--conv-blocked); }
       &--ready { background: var(--conv-ok-bg); color: var(--conv-ok); }
       // The author's move, not yours: grey, and on two lines when it needs them.
@@ -1497,6 +1514,12 @@ export default {
 
     &__reviewers {
       margin-top: 2px;
+    }
+
+    // How many times you reviewed it: between the reference line and the reviewers.
+    &__rounds {
+      color:     var(--conv-ink);
+      font-size: 12px;
     }
 
     &__row-meta,
@@ -1820,6 +1843,7 @@ export default {
       font-size: 13px;
 
       &--warn { color: var(--conv-orange-text); font-weight: 600; }
+      &--alert { color: var(--conv-blocked); font-weight: 600; }
       &--ok { color: var(--conv-ok); font-weight: 600; }
     }
 

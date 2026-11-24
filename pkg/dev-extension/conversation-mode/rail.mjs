@@ -137,8 +137,9 @@ function reviewerStatus(it) {
   if (it.reviewRequested && !it.reviewedAt) {
     return { text: 'Your review', tone: 'warn', stage: 0 };
   }
+  // Asked again after you reviewed: red, the one reviewer state that is yours to move on now.
   if (it.reviewRequested) {
-    return { text: 'Asked again', tone: 'warn', stage: 3 };
+    return { text: 'Asked again', tone: 'alert', stage: 3 };
   }
   // Pushed to since, and not asked again: the author's move.
   if (pushedSinceReview(it)) {
@@ -248,6 +249,8 @@ export function railSections(chats = [], links = {}, work = {}, activity = {}, q
       activity: Object.keys(URGENCY).find((k) => URGENCY[k] === urgency) || 'none',
       status:   archived ? { text: 'Archived', tone: '', stage: statusOf(item.section, item.subject, found).stage } : statusOf(item.section, item.subject, found, item.chatIds.length > 0),
       updated:  Date.parse(found?.item?.updatedAt || '') || 0,
+      // The times you reviewed it (github.mjs, myRounds), for a pull request you review.
+      rounds:   found?.role === 'reviewer' ? found.item.rounds : undefined,
       last:     Math.max(0, ...item.chatIds.map((id) => lastAt[id] || 0)),
     };
   });
