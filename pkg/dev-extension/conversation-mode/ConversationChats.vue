@@ -410,27 +410,29 @@ export default {
           :steps="steps"
           :current-index="currentItem.status.stage"
         />
-        <button
-          v-if="action"
-          type="button"
-          class="chats__action"
-          :class="{ 'chats__action--on': confirming }"
-          :title="`Send the ${ action.label.toLowerCase() } prompt to this chat - you see it first`"
-          :data-action="action.id"
-          data-testid="chat-action"
-          @click="confirming = !confirming"
-        >
-          {{ action.label }}
-        </button>
-        <button
-          type="button"
-          class="chats__archive"
-          :title="currentItem.archived ? 'Bring it back to the dashboard and the rail' : 'Take it off the dashboard and file it under Done; the chats stay'"
-          data-testid="chat-archive"
-          @click="$emit('archive', { ids: currentItem.chatIds, archived: !currentItem.archived })"
-        >
-          {{ currentItem.archived ? 'Unarchive' : 'Archive' }}
-        </button>
+        <div class="chats__head-actions">
+          <button
+            v-if="action"
+            type="button"
+              class="chats__action"
+            :class="{ 'chats__action--on': confirming }"
+            :title="`Send the ${ action.label.toLowerCase() } prompt to this chat - you see it first`"
+            :data-action="action.id"
+            data-testid="chat-action"
+            @click="confirming = !confirming"
+          >
+            {{ action.label }}
+          </button>
+          <button
+            type="button"
+            class="chats__archive"
+            :title="currentItem.archived ? 'Bring it back to the dashboard and the rail' : 'Take it off the dashboard and file it under Done; the chats stay'"
+            data-testid="chat-archive"
+            @click="$emit('archive', { ids: currentItem.chatIds, archived: !currentItem.archived })"
+          >
+            {{ currentItem.archived ? 'Unarchive' : 'Archive' }}
+          </button>
+        </div>
       </header>
 
       <div
@@ -898,8 +900,17 @@ export default {
 
     &__head-text {
       display:        flex;
+      flex:           1 1 240px;
       flex-direction: column;
       min-width:      0;
+    }
+
+    // Work on it / Review it and Archive stay together, at the right.
+    &__head-actions {
+      display:     flex;
+      flex:        0 0 auto;
+      gap:         8px;
+      margin-left: auto;
     }
 
     &__head-title {
@@ -919,8 +930,10 @@ export default {
       font-size: 12px;
     }
 
+    // Shrinks before anything wraps: the title, the steps and the buttons share one line.
     &__stages {
-      flex: 0 1 560px;
+      flex:      1 1 360px;
+      max-width: 560px;
     }
 
     // Every row above the chat keeps its height: the body is the one that grows, and without this
