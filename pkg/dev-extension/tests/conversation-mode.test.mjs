@@ -1174,3 +1174,20 @@ test('a chat started from Find work opens with the doable-or-not check, naming i
   assert.ok(PICKUP_CHECK.endsWith('After this analysis, we should decide if we are going to do or not.'));
   assert.equal(PICKUP_CHECK.split('\n').length, 9);
 });
+
+test('the chat header button: Work on it on your issue, Review it on a PR you review, with the run', async() => {
+  const { chatAction, WORK_ON_IT, REVIEW_IT } = await import('../conversation-mode/projects.mjs');
+  const issue = { kind: 'issue' };
+  const pr = { kind: 'pr' };
+  const rounds = [{ state: 'CHANGES_REQUESTED', at: '2026-11-19T00:00:00Z' }];
+
+  assert.deepEqual(chatAction(issue, 'developer'), { id: 'work', label: 'Work on it', text: WORK_ON_IT });
+  assert.equal(chatAction(pr, 'reviewer', []).text, `${ REVIEW_IT }\n\nSo far you have posted 0 reviews on this PR, so this is run 1.`);
+  assert.equal(chatAction(pr, 'reviewer', rounds).text, `${ REVIEW_IT }\n\nSo far you have posted 1 review on this PR, so this is run 2.`);
+  assert.equal(chatAction(pr, 'reviewer').text, REVIEW_IT);
+  assert.equal(chatAction(pr, 'developer'), null);
+  assert.equal(chatAction(issue, 'reviewer'), null);
+  assert.equal(chatAction(null, 'other'), null);
+  assert.ok(WORK_ON_IT.startsWith('We should work on the UI.\n') && WORK_ON_IT.split('\n').length === 8);
+  assert.ok(REVIEW_IT.startsWith('We should review this PR using process B.\n') && REVIEW_IT.split('\n').length === 6);
+});

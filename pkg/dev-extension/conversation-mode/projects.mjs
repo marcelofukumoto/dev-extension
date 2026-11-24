@@ -82,6 +82,47 @@ export function pickupMessage(subject) {
   return `This chat is about the issue ${ subject.url } ("${ subject.title }").\n\n${ PICKUP_CHECK }`;
 }
 
+/**
+ * What the header's button sends to a chat about an issue of yours: build it, then loop on review
+ * B until it holds, then present it. Marcelo's wording (2026-11-24), kept as he wrote it.
+ */
+export const WORK_ON_IT = `We should work on the UI.
+Let's work on it.
+Do an analysis what is the best UI/UX based on the usual patterns.
+Check the backend feature, ins and out of the APIs to be able to work on it.
+When creating the PR, remember to add the backend PR to the description with a checkbox and a link where we can the status.
+After finished, check it all good using the review B process, if there is anything to change, change it.
+Check with review process B again until it works perfectly. So loop on doing changes and applying.
+After finished, check with the the training UI process where we create a presentation, so we can see what has been created.`;
+
+/** What the header's button sends to a chat about a pull request you review. Marcelo's wording (2026-11-24). */
+export const REVIEW_IT = `We should review this PR using process B.
+After finishing the review B process, check the outcome and see if the points are true, make sure you can reproduce the problems.
+After finished, check with the the training UI process where we create a presentation, so we can see what has been created. Share the link.
+Create as well the review page with the comments. On the guided training UI process, connect the guide with the comments to help.
+At the end of the message on the chat. Add if suggest Approved or Request Changes. Add the comments enumerated.
+First run you can be strict if approves or not, second you can decrease the strictiness, and third one you can be more flexible`;
+
+/**
+ * The button a chat's header offers, or null: "Work on it" on an issue of yours, "Review it" on a
+ * pull request you review. The review one says which run this is, from the reviews you posted
+ * (github.mjs, myRounds), since how strict to be depends on it; nothing is said when that count
+ * is not known.
+ */
+export function chatAction(subject, role, rounds) {
+  if (subject?.kind === 'issue' && role === 'developer') {
+    return { id: 'work', label: 'Work on it', text: WORK_ON_IT };
+  }
+  if (subject?.kind === 'pr' && role === 'reviewer') {
+    const n = Array.isArray(rounds) ? rounds.length : -1;
+    const run = n < 0 ? '' : `\n\nSo far you have posted ${ n } review${ n === 1 ? '' : 's' } on this PR, so this is run ${ n + 1 }.`;
+
+    return { id: 'review', label: 'Review it', text: `${ REVIEW_IT }${ run }` };
+  }
+
+  return null;
+}
+
 /** A subject from a GithubPr or GithubIssue row. */
 export function subjectOf(item, kind = 'pr') {
   return {

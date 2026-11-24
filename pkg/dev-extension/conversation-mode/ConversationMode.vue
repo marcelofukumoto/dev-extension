@@ -16,7 +16,7 @@ import ConversationDashboard from './ConversationDashboard.vue';
 import ConversationBrowser from './ConversationBrowser.vue';
 import {
   listConversations, startConversation, renameConversation, endConversation, conversationStates,
-  conversationSnapshot, statesFromSnapshot
+  conversationSnapshot, statesFromSnapshot, sendToPane
 } from '../conversations';
 import { agentStateOf } from '../workspace-status';
 import {
@@ -591,6 +591,16 @@ export default {
       }
     },
 
+    /** A prompt from the chat header's Work on it / Review it, typed into the chat's pane as the composer would. */
+    async sendPrompt({ id, text }) {
+      this.error = '';
+      try {
+        await sendToPane(id, text);
+      } catch (e) {
+        this.error = `The prompt could not be sent to the chat: ${ e?.message || e }`;
+      }
+    },
+
     /**
      * The chat Chats opens on when none is asked for: the one last open in this browser, if it is
      * still there; else the one that moved last; else the first.
@@ -831,6 +841,7 @@ export default {
       @rename="renameChat"
       @close="closeChat"
       @archive="archiveChats"
+      @send="sendPrompt"
     />
   </div>
 </template>

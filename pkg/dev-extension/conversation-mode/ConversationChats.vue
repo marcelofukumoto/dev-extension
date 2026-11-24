@@ -19,7 +19,7 @@ import ReviewRounds from './ReviewRounds.vue';
 import { FIX_STEPS, REVIEW_STEPS } from '../workspace-rail';
 import { chatCommand } from './config.mjs';
 import { railSections, filterRail } from './rail.mjs';
-import { ago } from './projects.mjs';
+import { ago, chatAction } from './projects.mjs';
 
 /** Chips in the links bar before "+N more". */
 const LINKS_SHOWN = 8;
@@ -44,7 +44,7 @@ export default {
     StudioTerminal, StageSteps, AppIcon, ClaudeUsage, ReviewRounds
   },
 
-  emits: ['select', 'create', 'rename', 'close', 'archive'],
+  emits: ['select', 'create', 'rename', 'close', 'archive', 'send'],
 
   props: {
     chats:     { type: Array, default: () => [] },
@@ -79,6 +79,8 @@ export default {
       doneOpen:   false,
       /** Whether the last message you sent is shown whole rather than in two lines. */
       saidOpen:   false,
+      /** The header's Work on it / Review it, asked to confirm: its text shown, Send or Cancel. */
+      confirming: false,
     };
   },
 
@@ -120,6 +122,21 @@ export default {
     /** How many times you reviewed the open chat's pull request, when it is one you review (rail.mjs). */
     currentRounds() {
       return this.currentItem?.rounds;
+    },
+
+    /**
+     * The header's button for the open chat ({ id, label, text }), or null: none once archived.
+     * Not hidden when GitHub no longer lists it (`finished`): an issue picked from Find work is not
+     * assigned to you yet, and that is when Work on it is wanted.
+     */
+    action() {
+      const item = this.currentItem;
+
+      return item && !item.archived ? chatAction(item.subject, item.role, item.rounds) : null;
+    },
+
+    currentChatTitle() {
+      return this.chats.find((c) => c.id === this.current)?.title || 'this chat';
     },
 
     /** The last message you sent the open chat ({ text, at }), or null. */
@@ -166,6 +183,7 @@ export default {
         this.closing = '';
         this.linksAll = false;
         this.saidOpen = false;
+        this.confirming = false;
       },
     },
 
@@ -184,6 +202,14 @@ export default {
   },
 
   methods: {
+    /** Send the header button's prompt to the open chat (ConversationMode.vue types it in). */
+    sendAction() {
+      if (this.action && this.current) {
+        this.$emit('send', { id: this.current, text: this.action.text });
+      }
+      this.confirming = false;
+    },
+
     /** The item's hover: its title, and when its chat last moved (the rail's order). */
     itemTitle(item) {
       return item.last ? `${ item.title } - last message ${ ago(new Date(item.last).toISOString()) }` : item.title;
@@ -385,6 +411,18 @@ export default {
           :current-index="currentItem.status.stage"
         />
         <button
+          v-if="action"
+          type="button"
+          class="chats__action"
+          :class="{ 'chats__action--on': confirming }"
+          :title="`Send the ${ action.label.toLowerCase() } prompt to this chat - you see it first`"
+          :data-action="action.id"
+          data-testid="chat-action"
+          @click="confirming = !confirming"
+        >
+          {{ action.label }}
+        </button>
+        <button
           type="button"
           class="chats__archive"
           :title="currentItem.archived ? 'Bring it back to the dashboard and the rail' : 'Take it off the dashboard and file it under Done; the chats stay'"
@@ -477,6 +515,35 @@ export default {
           />
           {{ currentItem.subject ? `New chat on ${ currentItem.ref }` : 'New chat' }}
         </button>
+      </div>
+
+      <div
+        v-if="confirming && action"
+        class="chats__confirm"
+        data-testid="chat-action-confirm"
+      >
+        <p class="chats__confirm-help">
+          {{ action.label }} sends this to <strong>{{ currentChatTitle }}</strong>:
+        </p>
+        <pre class="chats__confirm-text">{{ action.text }}</pre>
+        <div class="chats__confirm-buttons">
+          <button
+            type="button"
+            class="chats__action"
+            data-testid="chat-action-send"
+            @click="sendAction"
+          >
+            Send
+          </button>
+          <button
+            type="button"
+            class="chats__archive"
+            data-testid="chat-action-cancel"
+            @click="confirming = false"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
 
       <nav
@@ -766,6 +833,55 @@ export default {
       padding:       12px 18px;
       border-bottom: 1px solid var(--conv-line);
       background:    var(--conv-surface);
+    }
+
+    // Work on it / Review it: the one dark button in the header, beside Archive.
+    &__action {
+      padding:       5px 12px;
+      border:        1px solid var(--conv-ink);
+      border-radius: 6px;
+      background:    var(--conv-ink);
+      color:         var(--conv-on-ink);
+      cursor:        pointer;
+      font-size:     12px;
+      font-weight:   600;
+
+      &--on,
+      &:hover { opacity: 0.85; }
+    }
+
+    // What the button would send, before it is sent.
+    &__confirm {
+      flex:          0 0 auto;
+      padding:       10px 16px;
+      border-bottom: 1px solid var(--conv-line);
+      background:    var(--conv-subtle);
+      font-size:     13px;
+    }
+
+    &__confirm-help {
+      margin: 0 0 6px;
+      color:  var(--conv-text);
+    }
+
+    &__confirm-text {
+      max-height:    30vh;
+      margin:        0 0 8px;
+      padding:       8px 10px;
+      overflow-y:    auto;
+      border:        1px solid var(--conv-line);
+      border-radius: 6px;
+      background:    var(--conv-surface);
+      color:         var(--conv-text);
+      font-family:   inherit;
+      font-size:     12px;
+      line-height:   1.45;
+      white-space:   pre-wrap;
+    }
+
+    &__confirm-buttons {
+      display: flex;
+      gap:     8px;
     }
 
     &__archive {

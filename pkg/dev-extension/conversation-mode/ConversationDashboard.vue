@@ -744,7 +744,7 @@ export default {
             v-for="row in shownAttention"
             :key="row.kind + row.key"
             class="dash__row"
-            :class="[{ 'dash__row--chat': row.chatId }, rowState(row) ? `dash__row--${ rowState(row) }` : '']"
+            :class="[{ 'dash__row--chat': row.chatId, 'dash__row--author': row.chatId && row.kind === 'waiting' }, rowState(row) ? `dash__row--${ rowState(row) }` : '']"
             :data-chat-state="rowState(row) || null"
             :data-testid="`attention-${ row.kind }`"
           >
@@ -1423,6 +1423,13 @@ export default {
       &--chat {
         background: var(--conv-mint);
         box-shadow: inset 3px 0 0 var(--conv-accent);
+      }
+
+      // Waiting review request: the author's move, so its chat has nothing to do - grey, not green.
+      // A chat that is working or asking still shows blue or orange (below).
+      &--author {
+        background: var(--conv-subtle);
+        box-shadow: inset 3px 0 0 var(--conv-meta, #8a938e);
       }
 
       // Its chat is working: blue, the edge pulsing like the agent's dot.
