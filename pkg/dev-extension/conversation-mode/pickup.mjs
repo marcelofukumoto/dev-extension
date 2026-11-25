@@ -9,6 +9,11 @@ import { subjectKey, PROJECTS, CARDS } from './projects.mjs';
 
 /** The tabs, in the order they are shown. A new one is a line here. */
 export const PICKUP_TABS = [
+  // Yours already: the dashboard issues assigned to you, a backport beside its issue - the
+  // milestone picks which (v2.17.0, v2.16.1). `@me` is whoever owns the server's token.
+  {
+    id: 'mine', name: 'My dashboard issues', search: 'is:issue state:open assignee:@me label:area/dashboard'
+  },
   {
     id: 'longhorn', name: 'Longhorn', project: { org: 'rancher', number: 57, view: 68 }
   },

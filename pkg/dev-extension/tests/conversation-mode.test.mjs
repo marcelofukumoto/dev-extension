@@ -966,9 +966,10 @@ test('Needs your attention goes newest first: a row\'s chat or GitHub, whichever
 test('find work: a tab is a project view or a search, and its GitHub address', async() => {
   const P = await import('../conversation-mode/pickup.mjs');
 
-  assert.deepEqual(P.PICKUP_TABS.map((t) => t.id), ['longhorn', 'harvester', 'fleet', 'jira-bugs']);
-  assert.equal(P.tabUrl(P.PICKUP_TABS[0]), 'https://github.com/orgs/rancher/projects/57/views/68');
-  assert.equal(P.tabUrl(P.PICKUP_TABS[3]), 'https://github.com/issues?q=repo%3Arancher%2Fdashboard%20is%3Aissue%20state%3Aopen%20label%3AJIRA%20label%3Akind%2Fbug');
+  assert.deepEqual(P.PICKUP_TABS.map((t) => t.id), ['mine', 'longhorn', 'harvester', 'fleet', 'jira-bugs']);
+  assert.equal(P.tabUrl(P.PICKUP_TABS[0]), 'https://github.com/issues?q=is%3Aissue%20state%3Aopen%20assignee%3A%40me%20label%3Aarea%2Fdashboard');
+  assert.equal(P.tabUrl(P.PICKUP_TABS[1]), 'https://github.com/orgs/rancher/projects/57/views/68');
+  assert.equal(P.tabUrl(P.PICKUP_TABS[4]), 'https://github.com/issues?q=repo%3Arancher%2Fdashboard%20is%3Aissue%20state%3Aopen%20label%3AJIRA%20label%3Akind%2Fbug');
   // A view's filter goes to GitHub as a string, quotes and all.
   const q = P.projectItemsQuery({ org: 'rancher', number: 57 }, 'label:area/fleet -status:"Ice Box"', 'Y3Vyc29y');
 
