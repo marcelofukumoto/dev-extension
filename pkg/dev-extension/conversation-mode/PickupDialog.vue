@@ -699,9 +699,9 @@ export default {
 
 .pk__row {
   &--chat td {
-    background: var(--conv-mint);
+    background: var(--conv-chat-bg);
 
-    &:first-child { box-shadow: inset 3px 0 0 var(--conv-accent); }
+    &:first-child { box-shadow: inset 4px 0 0 var(--conv-chat-edge); }
   }
 
   &--working td {

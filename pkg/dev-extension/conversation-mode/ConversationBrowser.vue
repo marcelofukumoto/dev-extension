@@ -658,11 +658,11 @@ export default {
       }
     }
 
-    // Already has a chat: the chats' mint, and the agent's green down the edge.
+    // Already has a chat: green, as on the dashboard, a darker green down the edge.
     &__row--chat td {
-      background: var(--conv-mint);
+      background: var(--conv-chat-bg);
 
-      &:first-child { box-shadow: inset 3px 0 0 var(--conv-accent); }
+      &:first-child { box-shadow: inset 4px 0 0 var(--conv-chat-edge); }
     }
 
     // Its chat is working: blue, the edge pulsing. Waiting for you: orange.

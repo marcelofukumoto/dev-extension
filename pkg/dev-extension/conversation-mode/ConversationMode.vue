@@ -924,6 +924,12 @@ export default {
     --conv-accent:       #4cae6b;
     --conv-mint:         #e8f5ee;
     --conv-mint-line:    #d4e8db;
+    // A row whose issue or pull request has a chat: plainly green, so it never reads as the grey
+    // of a row whose chat has nothing to do ("Waiting review request"), which has no green in it.
+    --conv-chat-bg:      #d4eedc;
+    --conv-chat-edge:    #3d9a5c;
+    --conv-quiet-bg:     #ececec;
+    --conv-quiet-edge:   #9aa0a6;
     // A chat that is working is blue wherever it shows - its row, its rail item (the edge pulsing)
     // and its dot - so it stands apart from the mint every chat row has; waiting for you is orange.
     --conv-working-bg:   #d4e6ff;

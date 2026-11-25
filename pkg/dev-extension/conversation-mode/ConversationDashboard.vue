@@ -1434,15 +1434,21 @@ export default {
 
       // Already has a chat: the chats' mint, and the agent's green down the edge.
       &--chat {
-        background: var(--conv-mint);
-        box-shadow: inset 3px 0 0 var(--conv-accent);
+        background: var(--conv-chat-bg);
+        box-shadow: inset 4px 0 0 var(--conv-chat-edge);
       }
 
       // Waiting review request: the author's move, so its chat has nothing to do - grey, not green.
       // A chat that is working or asking still shows blue or orange (below).
       &--author {
-        background: var(--conv-subtle);
-        box-shadow: inset 3px 0 0 var(--conv-meta, #8a938e);
+        background: var(--conv-quiet-bg);
+        box-shadow: inset 4px 0 0 var(--conv-quiet-edge);
+
+        // Its chip is grey too: white, so it still shows on the grey.
+        .dash__kind--waiting {
+          background: var(--conv-surface);
+          box-shadow: inset 0 0 0 1px var(--conv-quiet-edge);
+        }
       }
 
       // Its chat is working: blue, the edge pulsing like the agent's dot.
@@ -1559,7 +1565,8 @@ export default {
       padding:         5px 12px;
       border:          1px solid var(--border);
       border-radius:   6px;
-      background:      none;
+      // White, not see-through: on a green or grey row a pale border alone disappears.
+      background:      var(--conv-surface);
       color:           var(--body-text);
       cursor:          pointer;
       font-size:       12px;
