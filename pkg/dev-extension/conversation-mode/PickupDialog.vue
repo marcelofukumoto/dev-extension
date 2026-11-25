@@ -213,6 +213,11 @@ export default {
 
     shortRepo: (repo) => repo.split('/').pop(),
 
+    /** Another issue as this row names it: `#19853` in its own repository, `harvester#11667` elsewhere. */
+    refOf(issue, other) {
+      return other.repo === issue.repo ? `#${ other.number }` : `${ this.shortRepo(other.repo) }#${ other.number }`;
+    },
+
     /** The labels worth a glance: kind, priority, area and the JIRA mark; the rest are in the issue. */
     labelsOf: (issue) => issue.labels.filter((l) => /^(kind|priority|area)\/|^JIRA$/i.test(l.name)).slice(0, 4),
 
@@ -406,6 +411,34 @@ export default {
                     :key="l.name"
                     class="pk__label"
                   >{{ l.name }}</span>
+                </span>
+                <!-- A backport and its issue name each other (pickup.mjs, backportOf / backportsOf). -->
+                <span
+                  v-if="i.backportOf"
+                  class="pk__backport"
+                  data-testid="pickup-backport-of"
+                >
+                  Backport from
+                  <a
+                    :href="i.backportOf.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ refOf(i, i.backportOf) }}</a>
+                </span>
+                <span
+                  v-if="(i.backports || []).length"
+                  class="pk__backport"
+                  data-testid="pickup-backports"
+                >
+                  Backport for
+                  <span
+                    v-for="(b, n) in i.backports"
+                    :key="b.url"
+                  >{{ b.version ? `${ b.version }: ` : '' }}<a
+                    :href="b.url"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ refOf(i, b) }}</a>{{ b.state === 'CLOSED' ? ' (closed)' : '' }}{{ n < i.backports.length - 1 ? ' · ' : '' }}</span>
                 </span>
                 <span
                   v-if="i.started.started"
@@ -765,6 +798,15 @@ export default {
 .pk__mention {
   display:    block;
   margin-top: 4px;
+  font-size:  12px;
+
+  a { color: var(--conv-link); }
+}
+
+.pk__backport {
+  display:    block;
+  margin-top: 4px;
+  color:      var(--conv-muted);
   font-size:  12px;
 
   a { color: var(--conv-link); }

@@ -1267,3 +1267,43 @@ test('the rail: an issue a pull request of yours fixes stands where the pull req
   // Closed (not yours any more): over, whatever the pull request.
   assert.equal(item({ mine: [pr], issues: [] }).section, 'done');
 });
+
+test('Find work: a backport and its issue name each other, as each bot writes them', async() => {
+  const P = await import('../conversation-mode/pickup.mjs');
+  const repo = (r) => ({ nameWithOwner: r });
+
+  assert.equal(P.backportVersion('[backport v2.16.1] Filter suggestion'), 'v2.16.1');
+  assert.equal(P.backportVersion('[BACKPORT][v1.13.1][BUG] v2 upgrade'), 'v1.13.1');
+  assert.equal(P.backportVersion('[backport v1.9] [DOC] LVM'), 'v1.9');
+  assert.equal(P.backportVersion('[backport] [DOC] LVM', 'v1.9.1'), 'v1.9.1');
+  assert.equal(P.isBackport('Backport the thing'), false);
+  assert.equal(P.isBackport('[TASK] should sync backport issue status'), false);
+
+  // dashboard, Harvester and Longhorn bodies.
+  assert.deepEqual(P.backportOf({ title: '[backport v2.16.1] F', repository: repo('rancher/dashboard'), body: 'This is a backport issue for https://github.com/rancher/dashboard/issues/19853, automatically created via [GitHub Actions workflow](https://github.com/rancher/dashboard/actions/runs/1)' }), { repo: 'rancher/dashboard', number: 19853, url: 'https://github.com/rancher/dashboard/issues/19853' });
+  assert.equal(P.backportOf({ title: '[backport v1.9] D', repository: repo('harvester/harvester'), body: 'backport the issue #11667' }).url, 'https://github.com/harvester/harvester/issues/11667');
+  assert.equal(P.backportOf({ title: '[BACKPORT][v1.13.1][BUG] x', repository: repo('longhorn/longhorn'), body: 'backport https://github.com/longhorn/longhorn/issues/14651' }).number, 14651);
+  assert.equal(P.backportOf({ title: 'Filter suggestion', repository: repo('rancher/dashboard'), body: 'Follow-up from #19398' }), null);
+
+  const ref = (number, title, state = 'OPEN', milestone = null, body = 'This is a backport issue for https://github.com/rancher/dashboard/issues/19853') => ({
+    source: {
+      __typename: 'Issue', number, title, state, body, url: `https://github.com/rancher/dashboard/issues/${ number }`, repository: repo('rancher/dashboard'), milestone
+    }
+  });
+  const original = {
+    number: 19853, title: 'Filter suggestion with double quotes returns no rows', state: 'OPEN', body: 'Follow-up from #19398', repository: repo('rancher/dashboard'),
+    timelineItems: { nodes: [ref(19398, 'Super-charged tables: optional Description column', 'CLOSED'), ref(19860, '[backport v2.16.1] Filter suggestion with double quotes returns no rows'), ref(19870, '[backport] Filter suggestion', 'CLOSED', { title: 'v2.15.5' }),
+      // A backport of another issue, whose copied body mentions this one.
+      ref(19871, '[backport v2.10] Something else', 'OPEN', null, 'This is a backport issue for #40712\n\nOriginal issue body:\n\nRelated to https://github.com/rancher/dashboard/issues/19853')] },
+  };
+  const shaped = P.shapeIssue(original);
+
+  assert.equal(shaped.backportOf, null);
+  assert.deepEqual(shaped.backports, [
+    { repo: 'rancher/dashboard', number: 19860, url: 'https://github.com/rancher/dashboard/issues/19860', state: 'OPEN', version: 'v2.16.1' },
+    { repo: 'rancher/dashboard', number: 19870, url: 'https://github.com/rancher/dashboard/issues/19870', state: 'CLOSED', version: 'v2.15.5' },
+  ]);
+  assert.equal(shaped.body, undefined);
+  // A backport's own references are its siblings, not backports of it.
+  assert.deepEqual(P.backportsOf({ title: '[backport v2.16.1] F', timelineItems: original.timelineItems }), []);
+});

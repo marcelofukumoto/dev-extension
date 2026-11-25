@@ -58,9 +58,15 @@ export function tabUrl(tab) {
 
 const PR_FIELDS = 'number url state isDraft repository { nameWithOwner isFork } author { login }';
 
-/** What is asked of each issue: enough for the table, and every pull request that points at it. */
+/**
+ * What is asked of each issue: enough for the table, every pull request that points at it, and its
+ * backports and what it is a backport of (backportOf, backportsOf - the body is read for that on the
+ * server and not handed on).
+ */
+const BACKPORT_FIELDS = 'number title url state body repository { nameWithOwner } milestone { title }';
+
 export const ISSUE_FIELDS = `
-  number title url state createdAt updatedAt
+  number title url state createdAt updatedAt body
   repository { nameWithOwner }
   author { login }
   milestone { title dueOn }
@@ -68,7 +74,7 @@ export const ISSUE_FIELDS = `
   assignees(first: 5) { nodes { login } }
   closedByPullRequestsReferences(first: 10, includeClosedPrs: true) { nodes { ${ PR_FIELDS } } }
   timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], last: 30) {
-    nodes { ... on CrossReferencedEvent { willCloseTarget source { __typename ... on PullRequest { ${ PR_FIELDS } } } } }
+    nodes { ... on CrossReferencedEvent { willCloseTarget source { __typename ... on PullRequest { ${ PR_FIELDS } } ... on Issue { ${ BACKPORT_FIELDS } } } } }
   }`;
 
 /** A view's own filter (and name). */
@@ -136,6 +142,76 @@ function prsOf(node) {
   return [...out.values()];
 }
 
+/**
+ * A backport issue's title starts with what the bots write: `[backport v2.16.1] ...` (dashboard,
+ * Harvester) or `[BACKPORT][v1.13.1][BUG] ...` (Longhorn). Its version, '' when it names none.
+ */
+const BACKPORT_TITLE = /^\s*\[backport\b\]?\s*(?:\[\s*)?(v?\d+(?:\.(?:\d+|x))*)?/i;
+
+export function isBackport(title) {
+  return BACKPORT_TITLE.test(String(title || ''));
+}
+
+/** The version a backport is for: its title's, else its milestone's. */
+export function backportVersion(title, milestone = '') {
+  return String(title || '').match(BACKPORT_TITLE)?.[1] || milestone || '';
+}
+
+/** The first issue a description names: its URL, `owner/repo#n` or `#n` (in `repo`). */
+const ISSUE_REF = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)|(?:\b([\w.-]+\/[\w.-]+))?#(\d+)\b/;
+
+/**
+ * What a backport issue is a backport of - the issue its description names first, which is how
+ * each bot writes it ("This is a backport issue for <url>", "backport the issue #11667", "backport
+ * <url>") - as `{ repo, number, url }`; null for an issue that is not a backport.
+ */
+export function backportOf(node) {
+  if (!isBackport(node?.title)) {
+    return null;
+  }
+  const m = String(node.body || '').replace(/<!--[\s\S]*?(?:-->|$)/g, '').match(ISSUE_REF);
+
+  if (!m) {
+    return null;
+  }
+  const repo = m[1] || m[3] || node.repository?.nameWithOwner || '';
+  const number = Number(m[2] || m[4]);
+
+  return { repo, number, url: `https://github.com/${ repo }/issues/${ number }` };
+}
+
+/**
+ * The backports of an issue: the backport issues GitHub lists as references to it whose own
+ * backportOf is this issue, `[{ repo, number, url, state, version }]`. Only those: a bot copies
+ * the original's body into its backport, so the backport of rancher/rancher#40712 (#50109)
+ * mentions rancher/dashboard#7897 too, without being a backport of it. None for a backport
+ * itself, whose references are its siblings.
+ */
+export function backportsOf(node) {
+  if (isBackport(node?.title)) {
+    return [];
+  }
+  const out = new Map();
+
+  for (const e of node?.timelineItems?.nodes || []) {
+    const s = e?.source;
+
+    const of = s?.__typename === 'Issue' && s.repository ? backportOf(s) : null;
+
+    if (of && of.repo === node.repository?.nameWithOwner && of.number === node.number) {
+      out.set(`${ s.repository.nameWithOwner }#${ s.number }`, {
+        repo:    s.repository.nameWithOwner,
+        number:  s.number,
+        url:     s.url,
+        state:   s.state,
+        version: backportVersion(s.title, s.milestone?.title),
+      });
+    }
+  }
+
+  return [...out.values()];
+}
+
 /** An issue as the dialog shows it; `extra` is what a project adds (status, priority). */
 export function shapeIssue(node, extra = {}) {
   const repo = node.repository?.nameWithOwner || '';
@@ -157,6 +233,8 @@ export function shapeIssue(node, extra = {}) {
     status:    extra.status || '',
     priority:  extra.priority || labels.map((l) => l.name).find((n) => /^priority\//.test(n)) || '',
     prs:       prsOf(node),
+    backportOf: backportOf(node),
+    backports:  backportsOf(node),
   };
 }
 
